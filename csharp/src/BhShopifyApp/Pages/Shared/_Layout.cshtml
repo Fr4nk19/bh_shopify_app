@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - BH ERP Sync</title>
+
+    <!-- Shopify App Bridge -->
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"
+            data-api-key="@ViewData["ApiKey"]"></script>
+
+    <!-- Polaris CSS (CDN) -->
+    <link rel="stylesheet"
+          href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css" />
+    <link rel="stylesheet"
+          href="https://unpkg.com/@@shopify/polaris@12/build/esm/styles.css" />
+
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+               background: #f6f6f7; margin: 0; padding: 0; }
+        .page-wrapper { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .nav-bar { background: #fff; border-bottom: 1px solid #e1e3e5;
+                   padding: 12px 20px; margin-bottom: 20px; }
+        .nav-bar a { margin-right: 16px; color: #008060; text-decoration: none;
+                     font-weight: 500; font-size: 14px; }
+        .nav-bar a:hover { text-decoration: underline; }
+        .card { background: #fff; border-radius: 8px;
+                border: 1px solid #e1e3e5; padding: 20px; margin-bottom: 20px; }
+        .card h2 { margin-top: 0; font-size: 18px; }
+        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .stat-card { background: #fff; border-radius: 8px;
+                     border: 1px solid #e1e3e5; padding: 20px; text-align: center; }
+        .stat-number { font-size: 36px; font-weight: 700; margin: 8px 0; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px;
+                 font-size: 12px; font-weight: 500; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger  { background: #f8d7da; color: #721c24; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .badge-info    { background: #d1ecf1; color: #0c5460; }
+        .badge-secondary { background: #e2e3e5; color: #383d41; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e1e3e5; }
+        th { background: #f6f6f7; font-weight: 600; }
+        .btn { display: inline-block; padding: 8px 16px; border-radius: 6px;
+               font-size: 14px; font-weight: 500; cursor: pointer; border: none;
+               text-decoration: none; transition: opacity .15s; }
+        .btn:hover { opacity: .85; }
+        .btn-primary   { background: #008060; color: #fff; }
+        .btn-secondary { background: #fff; color: #202223; border: 1px solid #c9cccf; }
+        .btn-danger    { background: #d72c0d; color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 13px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-weight: 500; margin-bottom: 4px;
+                            font-size: 14px; }
+        .form-control { width: 100%; padding: 8px 12px; border: 1px solid #c9cccf;
+                        border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+        .form-control:focus { outline: none; border-color: #008060;
+                              box-shadow: 0 0 0 2px rgba(0,128,96,.2); }
+        .alert { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-danger  { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        .form-check { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        code { background: #f6f6f7; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        pre { background: #f6f6f7; padding: 12px; border-radius: 6px;
+              font-size: 12px; overflow-x: auto; }
+        @@media (max-width: 768px) {
+            .stat-grid, .two-col { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="nav-bar">
+        <strong>BH ERP Sync</strong> &nbsp;|&nbsp;
+        <a href="/app">Dashboard</a>
+        <a href="/app/products">Productos</a>
+        <a href="/app/sync-log">Historial</a>
+        <a href="/app/settings">Configuración</a>
+    </div>
+    <div class="page-wrapper">
+        @RenderBody()
+    </div>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

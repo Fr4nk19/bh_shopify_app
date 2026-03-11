@@ -1,0 +1,171 @@
+@page "/app/products"
+@model BhShopifyApp.Pages.App.ProductsModel
+@{
+    ViewData["Title"] = "Mapeo de Productos";
+}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:16px">
+        <a href="/app" class="btn btn-secondary btn-sm">← Volver</a>
+        <h1 style="margin:0">Mapeo de Productos</h1>
+    </div>
+    <form method="post" asp-page-handler="Import">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-primary">⬇️ Importar desde Shopify</button>
+    </form>
+</div>
+
+@if (TempData["Success"] is string msg) { <div class="alert alert-success">✅ @msg</div> }
+@if (TempData["Error"]   is string err) { <div class="alert alert-danger">❌ @err</div> }
+
+<!-- Search -->
+<div class="card" style="padding:12px 16px">
+    <form method="get">
+        <div style="display:flex;gap:10px;align-items:center">
+            <input class="form-control" type="text" name="search"
+                   value="@Model.Search" placeholder="Buscar por producto o SKU..."
+                   style="max-width:300px" />
+            <button type="submit" class="btn btn-secondary btn-sm">Buscar</button>
+            @if (!string.IsNullOrEmpty(Model.Search))
+            {
+                <a href="/app/products" class="btn btn-secondary btn-sm">Limpiar</a>
+            }
+        </div>
+    </form>
+</div>
+
+<div class="card" style="padding:0">
+    @if (!Model.Mappings.Any())
+    {
+        <div style="padding:40px;text-align:center;color:#6d7175">
+            <p>Sin productos mapeados.</p>
+            <p>Haz clic en <strong>Importar desde Shopify</strong> para cargar tus productos.</p>
+        </div>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>Producto / Variante</th>
+                    <th>Ubicación</th>
+                    <th>SKU ERP</th>
+                    <th>Variant ID</th>
+                    <th>Sync</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var m in Model.Mappings)
+                {
+                    <tr>
+                        <td>
+                            <strong>@m.ProductTitle</strong>
+                            @if (!string.IsNullOrEmpty(m.VariantTitle))
+                            {
+                                <br /><small style="color:#6d7175">@m.VariantTitle</small>
+                            }
+                        </td>
+                        <td>
+                            <small style="color:#6d7175">
+                                @(m.ShopifyLocationId == "PENDING" ? "⚠️ Pendiente" :
+                                  m.ShopifyLocationId.Split('/').Last())
+                            </small>
+                        </td>
+                        <td>
+                            @if (string.IsNullOrEmpty(m.ErpSku))
+                            { <span class="badge badge-warning">Sin mapear</span> }
+                            else { <code>@m.ErpSku</code> }
+                        </td>
+                        <td><small>@m.ShopifyVariantId.Split('/').Last()</small></td>
+                        <td>
+                            @if (m.SyncEnabled)
+                            { <span class="badge badge-success">Activo</span> }
+                            else
+                            { <span class="badge badge-secondary">Inactivo</span> }
+                        </td>
+                        <td>
+                            <div style="display:flex;gap:6px">
+                                <!-- Edit inline via small form -->
+                                <button class="btn btn-secondary btn-sm"
+                                        onclick="openEdit('@m.Id','@m.ErpSku','@m.SyncEnabled.ToString().ToLower()')">
+                                    ✏️ Editar
+                                </button>
+                                <form method="post" asp-page-handler="Toggle"
+                                      style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@m.Id" />
+                                    <button class="btn btn-secondary btn-sm">
+                                        @(m.SyncEnabled ? "⏸ Pausar" : "▶ Activar")
+                                    </button>
+                                </form>
+                                <form method="post" asp-page-handler="Delete"
+                                      style="display:inline"
+                                      onsubmit="return confirm('¿Eliminar este mapeo?')">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@m.Id" />
+                                    <button class="btn btn-danger btn-sm">🗑</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <!-- Pagination -->
+        @if (Model.TotalPages > 1)
+        {
+            <div style="padding:16px;display:flex;gap:8px;justify-content:center">
+                @for (var i = 1; i <= Model.TotalPages; i++)
+                {
+                    var active = i == Model.Page ? "btn-primary" : "btn-secondary";
+                    <a href="?page=@i&search=@Model.Search" class="btn @active btn-sm">@i</a>
+                }
+            </div>
+        }
+    }
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
+     z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:8px;padding:24px;min-width:380px;max-width:500px">
+        <h3 style="margin-top:0">Editar Mapeo</h3>
+        <form method="post" asp-page-handler="Update" id="editForm">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" id="editId" />
+            <div class="form-group">
+                <label>SKU del ERP</label>
+                <input class="form-control" type="text" name="erpSku" id="editSku"
+                       placeholder="PROD-001" />
+                <small style="color:#6d7175">
+                    Código exacto tal como aparece en tu ERP C#.
+                </small>
+            </div>
+            <div class="form-check">
+                <input type="checkbox" name="syncEnabled" value="true" id="editSync" />
+                <label for="editSync">Sincronización activa</label>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:16px">
+                <button type="submit" class="btn btn-primary">Guardar</button>
+                <button type="button" class="btn btn-secondary"
+                        onclick="closeEdit()">Cancelar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+function openEdit(id, sku, syncEnabled) {
+    document.getElementById('editId').value = id;
+    document.getElementById('editSku').value = sku || '';
+    document.getElementById('editSync').checked = syncEnabled === 'true';
+    document.getElementById('editModal').style.display = 'flex';
+}
+function closeEdit() {
+    document.getElementById('editModal').style.display = 'none';
+}
+</script>
+}
