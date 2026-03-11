@@ -1,0 +1,17 @@
+node_modules
+.cache
+build
+public/build
+.env
+*.local
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Shopify CLI
+.shopify
+
+# OS
+.DS_Store
+Thumbs.db
