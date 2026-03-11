@@ -1,0 +1,22 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+
+## Secrets
+appsettings.*.local.json
+secrets.json
+
+## Publish
+publish/
+out/
+
+## Rider
+.idea/
+
+## OS
+.DS_Store
+Thumbs.db
