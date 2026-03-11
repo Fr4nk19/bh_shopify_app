@@ -1,0 +1,40 @@
+name = "bh-shopify-app"
+client_id = "YOUR_SHOPIFY_CLIENT_ID"
+application_url = "https://YOUR_APP_URL"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "YOUR_DEV_STORE.myshopify.com"
+
+[access_scopes]
+scopes = "read_inventory,write_inventory,read_products,write_products,read_locations"
+
+[auth]
+redirect_urls = [
+  "https://YOUR_APP_URL/auth/callback",
+  "https://YOUR_APP_URL/auth/shopify/callback",
+  "https://YOUR_APP_URL/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-07"
+
+  [[webhooks.subscriptions]]
+  topics = ["inventory_levels/update"]
+  uri = "/webhooks/inventory-levels-update"
+
+  [[webhooks.subscriptions]]
+  topics = ["products/create"]
+  uri = "/webhooks/products-create"
+
+  [[webhooks.subscriptions]]
+  topics = ["products/update"]
+  uri = "/webhooks/products-update"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks/app-uninstalled"
+
+[pos]
+embedded = false

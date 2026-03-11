@@ -1,0 +1,125 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Shopify session storage (required by @shopify/shopify-app-session-storage-prisma)
+model Session {
+  id          String    @id
+  shop        String
+  state       String
+  isOnline    Boolean   @default(false)
+  scope       String?
+  expires     DateTime?
+  accessToken String
+  userId      BigInt?
+  firstName   String?
+  lastName    String?
+  email       String?
+  accountOwner Boolean  @default(false)
+  locale      String?
+  collaborator Boolean? @default(false)
+  emailVerified Boolean? @default(false)
+}
+
+// Per-shop ERP configuration
+model ShopSettings {
+  id              String   @id @default(cuid())
+  shop            String   @unique
+  erpBaseUrl      String
+  erpApiKey       String
+  erpApiHeader    String   @default("X-Api-Key")
+  syncEnabled     Boolean  @default(true)
+  syncIntervalMin Int      @default(15)
+  lastSyncAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Mapping between Shopify variants and ERP SKUs
+model ProductMapping {
+  id                 String   @id @default(cuid())
+  shop               String
+  shopifyProductId   String
+  shopifyVariantId   String
+  shopifyInventoryItemId String
+  shopifyLocationId  String
+  productTitle       String
+  variantTitle       String?
+  erpSku             String
+  syncEnabled        Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([shop, shopifyVariantId, shopifyLocationId])
+  @@index([shop])
+  @@index([shop, erpSku])
+}
+
+// Sync log for auditing and debugging
+model SyncLog {
+  id          String       @id @default(cuid())
+  shop        String
+  direction   SyncDirection
+  status      SyncStatus
+  source      String       // "webhook", "cron", "manual", "erp-push"
+  erpSku      String?
+  shopifyVariantId String?
+  quantityBefore Int?
+  quantityAfter  Int?
+  errorMessage   String?
+  payload        Json?
+  createdAt   DateTime     @default(now())
+
+  @@index([shop])
+  @@index([shop, createdAt])
+  @@index([status])
+}
+
+// Pending sync queue for retry logic
+model SyncQueue {
+  id          String       @id @default(cuid())
+  shop        String
+  direction   SyncDirection
+  erpSku      String?
+  shopifyVariantId String?
+  shopifyLocationId String?
+  quantity    Int?
+  payload     Json?
+  attempts    Int          @default(0)
+  maxAttempts Int          @default(3)
+  status      QueueStatus  @default(PENDING)
+  errorMessage String?
+  scheduledAt DateTime     @default(now())
+  processedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([shop, status])
+  @@index([status, scheduledAt])
+}
+
+enum SyncDirection {
+  SHOPIFY_TO_ERP
+  ERP_TO_SHOPIFY
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum QueueStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
