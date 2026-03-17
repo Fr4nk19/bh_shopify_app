@@ -43,6 +43,42 @@ model ShopSettings {
   updatedAt       DateTime @updatedAt
 }
 
+// Mapping between Shopify customers and ERP customers
+model CustomerMapping {
+  id                 String   @id @default(cuid())
+  shop               String
+  shopifyCustomerId  String
+  erpCustomerCode    String
+  firstName          String?
+  lastName           String?
+  email              String?
+  phone              String?
+  syncEnabled        Boolean  @default(true)
+  lastSyncAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([shop, shopifyCustomerId])
+  @@index([shop])
+  @@index([shop, erpCustomerCode])
+}
+
+// Custom field mapping for syncing metafields between Shopify and ERP
+model CustomFieldMapping {
+  id              String          @id @default(cuid())
+  shop            String
+  resourceType    ResourceType    // PRODUCT or CUSTOMER
+  shopifyField    String          // Shopify metafield namespace.key (e.g. "custom.color")
+  erpField        String          // ERP field name (e.g. "color")
+  syncDirection   SyncDirection   @default(ERP_TO_SHOPIFY)
+  syncEnabled     Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([shop, resourceType, shopifyField])
+  @@index([shop, resourceType])
+}
+
 // Mapping between Shopify variants and ERP SKUs
 model ProductMapping {
   id                 String   @id @default(cuid())
@@ -122,4 +158,9 @@ enum QueueStatus {
   PROCESSING
   COMPLETED
   FAILED
+}
+
+enum ResourceType {
+  PRODUCT
+  CUSTOMER
 }

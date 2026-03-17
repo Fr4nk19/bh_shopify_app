@@ -8,7 +8,7 @@ automatically_update_urls_on_dev = true
 dev_store_url = "YOUR_DEV_STORE.myshopify.com"
 
 [access_scopes]
-scopes = "read_inventory,write_inventory,read_products,write_products,read_locations"
+scopes = "read_inventory,write_inventory,read_products,write_products,read_locations,read_customers,write_customers"
 
 [auth]
 redirect_urls = [
@@ -31,6 +31,14 @@ api_version = "2024-07"
   [[webhooks.subscriptions]]
   topics = ["products/update"]
   uri = "/webhooks/products-update"
+
+  [[webhooks.subscriptions]]
+  topics = ["customers/create"]
+  uri = "/webhooks/customers-create"
+
+  [[webhooks.subscriptions]]
+  topics = ["customers/update"]
+  uri = "/webhooks/customers-update"
 
   [[webhooks.subscriptions]]
   topics = ["app/uninstalled"]
