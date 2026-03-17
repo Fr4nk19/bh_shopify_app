@@ -11,13 +11,14 @@ import {
 } from "@shopify/polaris";
 import { json, redirect } from "@remix-run/node";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
-import { login } from "../../app/shopify.server.js";
+import { login } from "../shopify.server.js";
+import polarisTranslations from "@shopify/polaris/locales/es.json";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }) => {
   const errors = login === undefined ? "api-credentials-not-set" : [];
-  return json({ errors, polarisTranslations: require("@shopify/polaris/locales/es.json") });
+  return json({ errors, polarisTranslations });
 };
 
 export const action = async ({ request }) => {
