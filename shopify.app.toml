@@ -1,4 +1,4 @@
-name = "bh-shopify-app"
+name = "BH sync App"
 client_id = "3db4d4448e8fae37fba7079d4be1ef1f"
 application_url = "https://bh-shopify-sync-app.up.railway.app"
 embedded = true
