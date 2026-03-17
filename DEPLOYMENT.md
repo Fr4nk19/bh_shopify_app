@@ -60,23 +60,95 @@ Shopify CLI abrirá un túnel y te dará la URL de tu app. Instálala en tu tien
 
 ---
 
-## 4. Despliegue a Producción
+## 4. Despliegue en Railway
+
+### 4.1 Crear el proyecto en Railway
+
+1. Ve a [railway.app](https://railway.app) e inicia sesión
+2. Click **"New Project"**
+3. Selecciona **"Deploy from GitHub repo"** y conecta este repositorio
+4. Railway detectará el `Dockerfile` automáticamente
+
+### 4.2 Agregar PostgreSQL
+
+1. Dentro del proyecto, click **"+ New"** → **"Database"** → **"PostgreSQL"**
+2. Railway creará la BD y la variable `DATABASE_URL` automáticamente
+3. Ve a la BD → **"Variables"** → copia el valor de `DATABASE_URL`
+4. Ve al servicio de la app → **"Variables"** → agrega `DATABASE_URL` con ese valor
+   (o usa la referencia: `${{Postgres.DATABASE_URL}}`)
+
+### 4.3 Configurar Variables de Entorno
+
+En Railway → tu servicio → **"Variables"**, agrega todas estas:
+
+| Variable | Valor | Notas |
+|----------|-------|-------|
+| `SHOPIFY_API_KEY` | `3db4d...` | Client ID de Shopify Partners |
+| `SHOPIFY_API_SECRET` | `shpss_...` | Client Secret de Shopify Partners |
+| `SHOPIFY_APP_URL` | `https://tu-app.up.railway.app` | URL pública que Railway te asigna |
+| `SCOPES` | `read_inventory,write_inventory,read_products,write_products,read_locations` | Permisos de la app |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Referencia a la BD de Railway |
+| `ERP_BASE_URL` | `https://tu-erp.com` | URL base de tu ERP |
+| `ERP_API_KEY` | tu API key | Clave de autenticación del ERP |
+| `ERP_API_HEADER` | `X-Api-Key` | Header HTTP para la API key |
+| `SYNC_INTERVAL_MINUTES` | `15` | Intervalo del cron sync |
+| `WEBHOOK_SECRET` | un secreto seguro | Para validar llamadas del ERP |
+| `PORT` | `3000` | Puerto del servidor (Railway lo detecta) |
+| `NODE_ENV` | `production` | Entorno de ejecución |
+
+> **Para editar variables después:** Railway → tu proyecto → servicio → pestaña **"Variables"**. Cada cambio redeploya automáticamente.
+
+### 4.4 Obtener la URL pública
+
+1. Ve al servicio → **"Settings"** → **"Networking"**
+2. Click **"Generate Domain"** para obtener una URL `*.up.railway.app`
+3. Copia esa URL y actualiza la variable `SHOPIFY_APP_URL` con ella
+4. También actualiza la URL en **Shopify Partners → tu app → Configuration → App URL**
+
+### 4.5 Actualizar shopify.app.toml
+
+En tu repo local, actualiza el `shopify.app.toml`:
+
+```toml
+application_url = "https://tu-app.up.railway.app"
+
+[auth]
+redirect_urls = [
+  "https://tu-app.up.railway.app/auth/callback",
+  "https://tu-app.up.railway.app/auth/shopify/callback",
+  "https://tu-app.up.railway.app/api/auth/callback"
+]
+```
+
+Luego despliega la configuración de la app a Shopify:
 
 ```bash
-# 1. Build de la app
+npm run deploy
+```
+
+### 4.6 Verificar el deploy
+
+1. Abre la URL de Railway en el navegador
+2. Ve a tu tienda Shopify → Apps → instala la app
+3. Configura el ERP desde la UI de la app
+
+### Despliegue manual alternativo (sin Docker)
+
+```bash
+# Build
 npm run build
 
-# 2. Migrar base de datos en producción
+# Migrar BD en producción
 npx prisma migrate deploy
 
-# 3. Deploy de la configuración de la app a Shopify
+# Deploy config de la app a Shopify
 npm run deploy
 
-# 4. Iniciar servidor de producción
+# Iniciar servidor
 npm run start
 ```
 
-> **Docker:** Si usas Docker, el comando `npm run docker-start` ejecuta `setup` (prisma generate + migrate deploy) y luego `start`.
+> **Docker:** El `Dockerfile` incluido ejecuta `npm run docker-start` que corre `prisma generate + migrate deploy + start` automáticamente.
 
 ---
 
