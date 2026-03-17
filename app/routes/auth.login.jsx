@@ -22,11 +22,13 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
+  const formData = await request.clone().formData();
   const errors = await login(request);
   if (errors?.shop) {
     return json({ errors });
   }
-  return redirect(`/app`);
+  const shop = formData.get("shop");
+  return redirect(shop ? `/app?shop=${encodeURIComponent(shop)}` : `/app`);
 };
 
 export default function Auth() {
