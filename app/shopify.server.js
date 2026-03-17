@@ -24,7 +24,7 @@ const shopify = shopifyApp({
   appUrl: ensureHttps(process.env.SHOPIFY_APP_URL),
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
-  distribution: AppDistribution.AppStore,
+  distribution: AppDistribution.SingleMerchant,
   webhooks: {
     APP_UNINSTALLED: {
       deliveryMethod: DeliveryMethod.Http,
@@ -48,9 +48,7 @@ const shopify = shopifyApp({
       shopify.registerWebhooks({ session });
     },
   },
-  future: {
-    unstable_newEmbeddedAuthStrategy: true,
-  },
+  future: {},
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
