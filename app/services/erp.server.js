@@ -1,28 +1,27 @@
 /**
  * ERP Client Service
- * Handles all communication with the C# ERP REST API
+ * Handles all communication with the bh_backend REST API via /api/shopify/ endpoints
  *
- * Expected ERP endpoints:
- *   GET    /api/inventory              → list all inventory items
- *   GET    /api/inventory/{sku}        → get inventory for a SKU
- *   PUT    /api/inventory/{sku}        → update inventory for a SKU
- *   GET    /api/products               → list all products
- *   GET    /api/products/{sku}         → get product by SKU
- *   GET    /api/customers              → list all customers
- *   GET    /api/customers/{code}       → get customer by code
- *   PUT    /api/customers/{code}       → update customer in ERP
- *   POST   /api/customers              → create customer in ERP
- *   GET    /api/products/{sku}/customfields    → get product custom fields
- *   PUT    /api/products/{sku}/customfields    → update product custom fields
- *   GET    /api/customers/{code}/customfields  → get customer custom fields
- *   PUT    /api/customers/{code}/customfields  → update customer custom fields
+ * Backend endpoints (bh_backend ShopifyController):
+ *   GET    /api/shopify/health                          → health check (no auth)
+ *   GET    /api/shopify/inventory?companyId=&branchId=  → list all inventory items
+ *   GET    /api/shopify/inventory/{sku}?companyId=&branchId= → get inventory for a SKU
+ *   PUT    /api/shopify/inventory/{sku}?companyId=&branchId= → update inventory for a SKU
+ *   GET    /api/shopify/products?companyId=             → list all products
+ *   GET    /api/shopify/products/{sku}?companyId=       → get product by SKU
+ *   GET    /api/shopify/customers?companyId=            → list all customers
+ *   GET    /api/shopify/customers/{code}?companyId=     → get customer by code
+ *   PUT    /api/shopify/customers/{code}?companyId=     → upsert customer
+ *
+ * Authentication: X-Api-Key header (configurable per shop)
  */
 
 import axios from "axios";
 import { db } from "../db.server.js";
 
 /**
- * Build an axios instance configured for a specific shop's ERP
+ * Build an axios instance configured for a specific shop's ERP.
+ * Returns { client, settings } where settings includes companyId/branchId.
  */
 async function getErpClient(shop) {
   const settings = await db.shopSettings.findUnique({ where: { shop } });
@@ -48,14 +47,38 @@ async function getErpClient(shop) {
 }
 
 /**
+ * Build query string params for inventory endpoints (require companyId + branchId)
+ */
+function inventoryParams(settings) {
+  const params = {};
+  if (settings.erpCompanyId) params.companyId = settings.erpCompanyId;
+  if (settings.erpBranchId) params.branchId = settings.erpBranchId;
+  return params;
+}
+
+/**
+ * Build query string params for product/customer endpoints (require companyId)
+ */
+function companyParams(settings) {
+  const params = {};
+  if (settings.erpCompanyId) params.companyId = settings.erpCompanyId;
+  return params;
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+/**
  * Get inventory level for a specific SKU from ERP
- * @returns {{ sku: string, quantity: number, location?: string, updatedAt?: string }}
+ * @returns {{ sku, barcode, productName, quantity, availableQuantity, location, warehouseId, cost, price, unitMeasure, updatedAt }}
  */
 export async function getErpInventory(shop, sku) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   try {
-    const response = await client.get(`/api/inventory/${encodeURIComponent(sku)}`);
+    const response = await client.get(
+      `/api/shopify/inventory/${encodeURIComponent(sku)}`,
+      { params: inventoryParams(settings) }
+    );
     return response.data;
   } catch (error) {
     throw buildErpError("getErpInventory", sku, error);
@@ -70,7 +93,7 @@ export async function getErpInventory(shop, sku) {
  * @param {object} meta - Extra metadata (shopify variant id, etc.)
  */
 export async function updateErpInventory(shop, sku, quantity, meta = {}) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   const payload = {
     sku,
@@ -82,8 +105,9 @@ export async function updateErpInventory(shop, sku, quantity, meta = {}) {
 
   try {
     const response = await client.put(
-      `/api/inventory/${encodeURIComponent(sku)}`,
-      payload
+      `/api/shopify/inventory/${encodeURIComponent(sku)}`,
+      payload,
+      { params: inventoryParams(settings) }
     );
     return response.data;
   } catch (error) {
@@ -93,29 +117,35 @@ export async function updateErpInventory(shop, sku, quantity, meta = {}) {
 
 /**
  * Get all inventory items from the ERP
- * @returns {Array<{ sku: string, quantity: number, updatedAt: string }>}
+ * @returns {Array<{ sku, quantity, ... }>}
  */
 export async function getAllErpInventory(shop) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   try {
-    const response = await client.get("/api/inventory");
-    // Support both { items: [...] } and direct array responses
+    const response = await client.get("/api/shopify/inventory", {
+      params: inventoryParams(settings),
+    });
+    // Backend returns { items: [...], totalCount }
     return Array.isArray(response.data) ? response.data : response.data.items || [];
   } catch (error) {
     throw buildErpError("getAllErpInventory", null, error);
   }
 }
 
+// ─── Products ─────────────────────────────────────────────────────────────────
+
 /**
  * Get all products from the ERP
- * @returns {Array<{ sku: string, name: string, description?: string }>}
+ * @returns {Array<{ sku, name, description, category, brand, price, ... }>}
  */
 export async function getAllErpProducts(shop) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   try {
-    const response = await client.get("/api/products");
+    const response = await client.get("/api/shopify/products", {
+      params: companyParams(settings),
+    });
     return Array.isArray(response.data) ? response.data : response.data.items || [];
   } catch (error) {
     throw buildErpError("getAllErpProducts", null, error);
@@ -123,24 +153,55 @@ export async function getAllErpProducts(shop) {
 }
 
 /**
- * Test ERP connection with current settings
- * @returns {{ success: boolean, message: string, erpVersion?: string }}
+ * Get a single product by SKU from the ERP
+ * @returns {{ sku, barcode, name, description, category, brand, price, cost, unitMeasure, images, updatedAt }}
+ */
+export async function getErpProduct(shop, sku) {
+  const { client, settings } = await getErpClient(shop);
+
+  try {
+    const response = await client.get(
+      `/api/shopify/products/${encodeURIComponent(sku)}`,
+      { params: companyParams(settings) }
+    );
+    return response.data;
+  } catch (error) {
+    throw buildErpError("getErpProduct", sku, error);
+  }
+}
+
+// ─── Test Connection ──────────────────────────────────────────────────────────
+
+/**
+ * Test ERP connection using the /api/shopify/health endpoint
+ * @returns {{ success: boolean, message: string }}
  */
 export async function testErpConnection(shop) {
   try {
-    const { client } = await getErpClient(shop);
-    // Try a lightweight endpoint first, fallback to /api/inventory
-    try {
-      const res = await client.get("/api/health");
-      return { success: true, message: "Conexión exitosa", data: res.data };
-    } catch {
-      const res = await client.get("/api/inventory");
-      const items = Array.isArray(res.data) ? res.data : res.data.items || [];
-      return {
-        success: true,
-        message: `Conexión exitosa. ${items.length} productos encontrados en el ERP.`,
-      };
+    const { client, settings } = await getErpClient(shop);
+
+    const res = await client.get("/api/shopify/health");
+    const data = res.data;
+
+    let message = "Conexión exitosa";
+    if (data.shopifyIntegration === "not_configured") {
+      message += " (advertencia: integración Shopify no configurada en el backend)";
     }
+
+    // Also verify inventory access if companyId/branchId are set
+    if (settings.erpCompanyId && settings.erpBranchId) {
+      try {
+        const invRes = await client.get("/api/shopify/inventory", {
+          params: inventoryParams(settings),
+        });
+        const items = Array.isArray(invRes.data) ? invRes.data : invRes.data.items || [];
+        message += `. ${items.length} items de inventario encontrados.`;
+      } catch {
+        message += ". No se pudo verificar el inventario (verifica Company ID y Branch ID).";
+      }
+    }
+
+    return { success: true, message, data };
   } catch (error) {
     return {
       success: false,
@@ -149,17 +210,19 @@ export async function testErpConnection(shop) {
   }
 }
 
-// ─── Customers ──────────────────────────────────────────────────────────────
+// ─── Customers ────────────────────────────────────────────────────────────────
 
 /**
  * Get all customers from the ERP
- * @returns {Array<{ code: string, firstName: string, lastName: string, email: string, phone?: string, customFields?: object }>}
+ * @returns {Array<{ code, firstName, lastName, companyName, email, phone, address, isTaxpayer, nrc, updatedAt }>}
  */
 export async function getAllErpCustomers(shop) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   try {
-    const response = await client.get("/api/customers");
+    const response = await client.get("/api/shopify/customers", {
+      params: companyParams(settings),
+    });
     return Array.isArray(response.data) ? response.data : response.data.items || [];
   } catch (error) {
     throw buildErpError("getAllErpCustomers", null, error);
@@ -167,13 +230,16 @@ export async function getAllErpCustomers(shop) {
 }
 
 /**
- * Get a specific customer from the ERP by code
+ * Get a specific customer from the ERP by code (DUI/NIT)
  */
 export async function getErpCustomer(shop, code) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   try {
-    const response = await client.get(`/api/customers/${encodeURIComponent(code)}`);
+    const response = await client.get(
+      `/api/shopify/customers/${encodeURIComponent(code)}`,
+      { params: companyParams(settings) }
+    );
     return response.data;
   } catch (error) {
     throw buildErpError("getErpCustomer", code, error);
@@ -184,7 +250,7 @@ export async function getErpCustomer(shop, code) {
  * Create or update a customer in the ERP
  */
 export async function upsertErpCustomer(shop, code, customerData) {
-  const { client } = await getErpClient(shop);
+  const { client, settings } = await getErpClient(shop);
 
   const payload = {
     code,
@@ -195,93 +261,53 @@ export async function upsertErpCustomer(shop, code, customerData) {
 
   try {
     const response = await client.put(
-      `/api/customers/${encodeURIComponent(code)}`,
-      payload
+      `/api/shopify/customers/${encodeURIComponent(code)}`,
+      payload,
+      { params: companyParams(settings) }
     );
     return response.data;
   } catch (error) {
-    if (error.response?.status === 404) {
-      // Customer doesn't exist, create it
-      try {
-        const createResponse = await client.post("/api/customers", payload);
-        return createResponse.data;
-      } catch (createError) {
-        throw buildErpError("createErpCustomer", code, createError);
-      }
-    }
     throw buildErpError("upsertErpCustomer", code, error);
   }
 }
 
-// ─── Custom Fields ──────────────────────────────────────────────────────────
+// ─── Custom Fields (not yet implemented in backend, kept as stubs) ──────────
 
 /**
  * Get custom fields for a product from the ERP
  */
 export async function getErpProductCustomFields(shop, sku) {
-  const { client } = await getErpClient(shop);
-
-  try {
-    const response = await client.get(`/api/products/${encodeURIComponent(sku)}/customfields`);
-    return response.data || {};
-  } catch (error) {
-    if (error.response?.status === 404) return {};
-    throw buildErpError("getErpProductCustomFields", sku, error);
-  }
+  // TODO: Implement when backend adds /api/shopify/products/{sku}/customfields
+  return {};
 }
 
 /**
  * Update custom fields for a product in the ERP
  */
 export async function updateErpProductCustomFields(shop, sku, fields) {
-  const { client } = await getErpClient(shop);
-
-  try {
-    const response = await client.put(
-      `/api/products/${encodeURIComponent(sku)}/customfields`,
-      { fields, source: "shopify", updatedAt: new Date().toISOString() }
-    );
-    return response.data;
-  } catch (error) {
-    throw buildErpError("updateErpProductCustomFields", sku, error);
-  }
+  // TODO: Implement when backend adds /api/shopify/products/{sku}/customfields
+  return {};
 }
 
 /**
  * Get custom fields for a customer from the ERP
  */
 export async function getErpCustomerCustomFields(shop, code) {
-  const { client } = await getErpClient(shop);
-
-  try {
-    const response = await client.get(`/api/customers/${encodeURIComponent(code)}/customfields`);
-    return response.data || {};
-  } catch (error) {
-    if (error.response?.status === 404) return {};
-    throw buildErpError("getErpCustomerCustomFields", code, error);
-  }
+  // TODO: Implement when backend adds /api/shopify/customers/{code}/customfields
+  return {};
 }
 
 /**
  * Update custom fields for a customer in the ERP
  */
 export async function updateErpCustomerCustomFields(shop, code, fields) {
-  const { client } = await getErpClient(shop);
-
-  try {
-    const response = await client.put(
-      `/api/customers/${encodeURIComponent(code)}/customfields`,
-      { fields, source: "shopify", updatedAt: new Date().toISOString() }
-    );
-    return response.data;
-  } catch (error) {
-    throw buildErpError("updateErpCustomerCustomFields", code, error);
-  }
+  // TODO: Implement when backend adds /api/shopify/customers/{code}/customfields
+  return {};
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function buildErpError(operation, sku, error) {
+function buildErpError(operation, identifier, error) {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     const detail = error.response?.data?.message || error.response?.data || error.message;
@@ -290,7 +316,7 @@ function buildErpError(operation, sku, error) {
       return new Error(`ERP: API Key inválida o sin permisos (${status})`);
     }
     if (status === 404) {
-      return new Error(`ERP: SKU no encontrado${sku ? ` - ${sku}` : ""} (404)`);
+      return new Error(`ERP: No encontrado${identifier ? ` - ${identifier}` : ""} (404)`);
     }
     if (status === 422 || status === 400) {
       return new Error(`ERP: Datos inválidos en ${operation}: ${JSON.stringify(detail)}`);
