@@ -8,6 +8,14 @@
  *   PUT    /api/inventory/{sku}        → update inventory for a SKU
  *   GET    /api/products               → list all products
  *   GET    /api/products/{sku}         → get product by SKU
+ *   GET    /api/customers              → list all customers
+ *   GET    /api/customers/{code}       → get customer by code
+ *   PUT    /api/customers/{code}       → update customer in ERP
+ *   POST   /api/customers              → create customer in ERP
+ *   GET    /api/products/{sku}/customfields    → get product custom fields
+ *   PUT    /api/products/{sku}/customfields    → update product custom fields
+ *   GET    /api/customers/{code}/customfields  → get customer custom fields
+ *   PUT    /api/customers/{code}/customfields  → update customer custom fields
  */
 
 import axios from "axios";
@@ -138,6 +146,136 @@ export async function testErpConnection(shop) {
       success: false,
       message: buildErpError("testErpConnection", null, error).message,
     };
+  }
+}
+
+// ─── Customers ──────────────────────────────────────────────────────────────
+
+/**
+ * Get all customers from the ERP
+ * @returns {Array<{ code: string, firstName: string, lastName: string, email: string, phone?: string, customFields?: object }>}
+ */
+export async function getAllErpCustomers(shop) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.get("/api/customers");
+    return Array.isArray(response.data) ? response.data : response.data.items || [];
+  } catch (error) {
+    throw buildErpError("getAllErpCustomers", null, error);
+  }
+}
+
+/**
+ * Get a specific customer from the ERP by code
+ */
+export async function getErpCustomer(shop, code) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.get(`/api/customers/${encodeURIComponent(code)}`);
+    return response.data;
+  } catch (error) {
+    throw buildErpError("getErpCustomer", code, error);
+  }
+}
+
+/**
+ * Create or update a customer in the ERP
+ */
+export async function upsertErpCustomer(shop, code, customerData) {
+  const { client } = await getErpClient(shop);
+
+  const payload = {
+    code,
+    ...customerData,
+    source: "shopify",
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const response = await client.put(
+      `/api/customers/${encodeURIComponent(code)}`,
+      payload
+    );
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      // Customer doesn't exist, create it
+      try {
+        const createResponse = await client.post("/api/customers", payload);
+        return createResponse.data;
+      } catch (createError) {
+        throw buildErpError("createErpCustomer", code, createError);
+      }
+    }
+    throw buildErpError("upsertErpCustomer", code, error);
+  }
+}
+
+// ─── Custom Fields ──────────────────────────────────────────────────────────
+
+/**
+ * Get custom fields for a product from the ERP
+ */
+export async function getErpProductCustomFields(shop, sku) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.get(`/api/products/${encodeURIComponent(sku)}/customfields`);
+    return response.data || {};
+  } catch (error) {
+    if (error.response?.status === 404) return {};
+    throw buildErpError("getErpProductCustomFields", sku, error);
+  }
+}
+
+/**
+ * Update custom fields for a product in the ERP
+ */
+export async function updateErpProductCustomFields(shop, sku, fields) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.put(
+      `/api/products/${encodeURIComponent(sku)}/customfields`,
+      { fields, source: "shopify", updatedAt: new Date().toISOString() }
+    );
+    return response.data;
+  } catch (error) {
+    throw buildErpError("updateErpProductCustomFields", sku, error);
+  }
+}
+
+/**
+ * Get custom fields for a customer from the ERP
+ */
+export async function getErpCustomerCustomFields(shop, code) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.get(`/api/customers/${encodeURIComponent(code)}/customfields`);
+    return response.data || {};
+  } catch (error) {
+    if (error.response?.status === 404) return {};
+    throw buildErpError("getErpCustomerCustomFields", code, error);
+  }
+}
+
+/**
+ * Update custom fields for a customer in the ERP
+ */
+export async function updateErpCustomerCustomFields(shop, code, fields) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.put(
+      `/api/customers/${encodeURIComponent(code)}/customfields`,
+      { fields, source: "shopify", updatedAt: new Date().toISOString() }
+    );
+    return response.data;
+  } catch (error) {
+    throw buildErpError("updateErpCustomerCustomFields", code, error);
   }
 }
 

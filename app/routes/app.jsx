@@ -18,6 +18,8 @@ export default function App() {
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
         <a href="/app/products">Mapeo de Productos</a>
+        <a href="/app/customers">Mapeo de Clientes</a>
+        <a href="/app/custom-fields">Campos Personalizados</a>
         <a href="/app/sync-log">Historial de Sincronización</a>
         <a href="/app/settings">Configuración ERP</a>
       </NavMenu>

@@ -8,6 +8,7 @@
 import cron from "node-cron";
 import { db } from "./db.server.js";
 import { fullSyncErpToShopify } from "./services/sync.server.js";
+import { fullSyncCustomersErpToShopify } from "./services/customer-sync.server.js";
 import { unauthenticated } from "./shopify.server.js";
 
 let cronJob = null;
@@ -54,7 +55,19 @@ async function runSyncForAllShops() {
         source: "cron",
       });
 
-      console.log(`[Cron] Sync complete for ${settings.shop}:`, results);
+      console.log(`[Cron] Inventory sync complete for ${settings.shop}:`, results);
+
+      // Sync customers
+      try {
+        const customerResults = await fullSyncCustomersErpToShopify({
+          shop: settings.shop,
+          graphql: admin.graphql,
+          source: "cron",
+        });
+        console.log(`[Cron] Customer sync complete for ${settings.shop}:`, customerResults);
+      } catch (customerErr) {
+        console.error(`[Cron] Customer sync failed for ${settings.shop}:`, customerErr.message);
+      }
     } catch (err) {
       console.error(`[Cron] Sync failed for ${settings.shop}:`, err.message);
     }

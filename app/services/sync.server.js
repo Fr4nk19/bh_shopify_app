@@ -13,6 +13,10 @@ import {
   setInventoryQuantity,
   getInventoryLevel,
 } from "./shopify-inventory.server.js";
+import {
+  syncProductCustomFieldsErpToShopify,
+  syncProductCustomFieldsShopifyToErp,
+} from "./customer-sync.server.js";
 
 // ─── Shopify → ERP ─────────────────────────────────────────────────────────────
 
@@ -55,6 +59,14 @@ export async function syncShopifyToErp({
       shopifyVariantId: mapping.shopifyVariantId,
       shopifyLocationId: locationId,
     });
+
+    // Sync product custom fields (metafields → ERP) if graphql is available
+    syncProductCustomFieldsShopifyToErp({
+      shop,
+      shopifyProductId: mapping.shopifyProductId,
+      erpSku: mapping.erpSku,
+      graphql: null, // No graphql in webhook context, will skip
+    }).catch(() => {});
 
     await logSync({
       shop,
@@ -143,6 +155,14 @@ export async function syncErpToShopify({
         quantity,
         "correction"
       );
+
+      // Sync product custom fields (ERP → metafields)
+      syncProductCustomFieldsErpToShopify({
+        shop,
+        shopifyProductId: mapping.shopifyProductId,
+        erpSku,
+        graphql,
+      }).catch(() => {});
 
       await logSync({
         shop,

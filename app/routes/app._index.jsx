@@ -222,6 +222,12 @@ export default function Dashboard() {
                   <Button url="/app/products" variant="secondary">
                     Gestionar Mapeo de Productos
                   </Button>
+                  <Button url="/app/customers" variant="secondary">
+                    Gestionar Mapeo de Clientes
+                  </Button>
+                  <Button url="/app/custom-fields" variant="secondary">
+                    Campos Personalizados
+                  </Button>
                   <Button url="/app/sync-log" variant="secondary">
                     Ver Historial Completo
                   </Button>
