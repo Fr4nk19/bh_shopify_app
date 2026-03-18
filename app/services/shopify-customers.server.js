@@ -5,8 +5,42 @@
 
 // ─── GraphQL Queries / Mutations ──────────────────────────────────────────────
 
-const GET_ALL_CUSTOMERS = `#graphql
-  query GetAllCustomers($cursor: String) {
+// Light query for import (no metafields - avoids scope issues during initial import)
+const GET_ALL_CUSTOMERS_BASIC = `#graphql
+  query GetAllCustomersBasic($cursor: String) {
+    customers(first: 50, after: $cursor) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          firstName
+          lastName
+          email
+          phone
+          state
+          tags
+          defaultAddress {
+            address1
+            address2
+            city
+            province
+            country
+            zip
+            phone
+            company
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Full query with metafields (for sync operations)
+const GET_ALL_CUSTOMERS_WITH_METAFIELDS = `#graphql
+  query GetAllCustomersWithMetafields($cursor: String) {
     customers(first: 50, after: $cursor) {
       pageInfo {
         hasNextPage
@@ -141,14 +175,16 @@ const GET_PRODUCT_METAFIELDS = `#graphql
 // ─── Service Functions ─────────────────────────────────────────────────────────
 
 /**
- * Get all customers with metafields (paginated)
+ * Get all customers (paginated)
+ * @param {boolean} includeMetafields - Whether to fetch metafields (requires read_customers scope)
  */
-export async function getAllCustomers(graphql) {
+export async function getAllCustomers(graphql, { includeMetafields = false } = {}) {
   const allCustomers = [];
   let cursor = null;
+  const query = includeMetafields ? GET_ALL_CUSTOMERS_WITH_METAFIELDS : GET_ALL_CUSTOMERS_BASIC;
 
   do {
-    const response = await graphql(GET_ALL_CUSTOMERS, {
+    const response = await graphql(query, {
       variables: { cursor },
     });
     const data = await response.json();
@@ -157,7 +193,9 @@ export async function getAllCustomers(graphql) {
     for (const { node: customer } of edges) {
       allCustomers.push({
         ...customer,
-        metafields: customer.metafields.edges.map(({ node }) => node),
+        metafields: customer.metafields
+          ? customer.metafields.edges.map(({ node }) => node)
+          : [],
       });
     }
 
