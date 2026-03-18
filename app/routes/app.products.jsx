@@ -35,6 +35,10 @@ import {
   getAllProductsWithInventory,
   getShopLocations,
 } from "../services/shopify-inventory.server.js";
+import {
+  getProductMetafields,
+  shopifyMetafieldsToErpFields,
+} from "../services/shopify-customers.server.js";
 
 const PAGE_SIZE = 20;
 
@@ -58,7 +62,7 @@ export const loader = async ({ request }) => {
       : {}),
   };
 
-  const [total, mappings, locations] = await Promise.all([
+  const [total, mappings, locations, customFieldMappings] = await Promise.all([
     db.productMapping.count({ where }),
     db.productMapping.findMany({
       where,
@@ -67,9 +71,44 @@ export const loader = async ({ request }) => {
       take: PAGE_SIZE,
     }),
     getShopLocations(admin.graphql),
+    db.customFieldMapping.findMany({
+      where: { shop, resourceType: "PRODUCT", syncEnabled: true },
+      orderBy: { shopifyField: "asc" },
+    }),
   ]);
 
-  return json({ mappings, total, page, pageSize: PAGE_SIZE, locations, shop });
+  // Fetch Shopify metafields for each product on this page and extract custom field values
+  const customFieldValues = {};
+  if (customFieldMappings.length > 0) {
+    // Deduplicate product IDs (multiple variants/locations may share the same product)
+    const uniqueProductIds = [...new Set(mappings.map((m) => m.shopifyProductId))];
+    const metafieldsByProduct = {};
+
+    const metafieldResults = await Promise.allSettled(
+      uniqueProductIds.map((pid) => getProductMetafields(admin.graphql, pid))
+    );
+    for (let i = 0; i < uniqueProductIds.length; i++) {
+      const result = metafieldResults[i];
+      metafieldsByProduct[uniqueProductIds[i]] =
+        result.status === "fulfilled" ? result.value : [];
+    }
+
+    for (const m of mappings) {
+      const metafields = metafieldsByProduct[m.shopifyProductId] || [];
+      customFieldValues[m.id] = shopifyMetafieldsToErpFields(metafields, customFieldMappings);
+    }
+  }
+
+  return json({
+    mappings,
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    locations,
+    shop,
+    customFieldMappings,
+    customFieldValues,
+  });
 };
 
 export const action = async ({ request }) => {
@@ -165,7 +204,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Products() {
-  const { mappings, total, page, pageSize, locations } = useLoaderData();
+  const { mappings, total, page, pageSize, locations, customFieldMappings, customFieldValues } = useLoaderData();
   const actionData = useActionData();
   const fetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -203,39 +242,45 @@ export default function Products() {
     return loc?.name || locationId?.split("/").pop() || "—";
   };
 
-  const rows = mappings.map((m) => [
-    <BlockStack gap="100">
-      <Text fontWeight="semibold">{m.productTitle}</Text>
-      {m.variantTitle && <Text tone="subdued" variant="bodySm">{m.variantTitle}</Text>}
-    </BlockStack>,
-    locationName(m.shopifyLocationId),
-    m.erpSku || <Badge tone="warning">Sin mapear</Badge>,
-    m.shopifyVariantId?.split("/").pop() || "—",
-    m.syncEnabled ? (
-      <Badge tone="success">Activo</Badge>
-    ) : (
-      <Badge tone="subdued">Inactivo</Badge>
-    ),
-    <InlineStack gap="200">
-      <Button size="slim" onClick={() => openEdit(m)}>
-        Editar
-      </Button>
-      <fetcher.Form method="post">
-        <input type="hidden" name="intent" value="toggle-sync" />
-        <input type="hidden" name="id" value={m.id} />
-        <Button size="slim" submit variant="plain">
-          {m.syncEnabled ? "Pausar" : "Activar"}
+  const rows = mappings.map((m) => {
+    const cfValues = customFieldValues[m.id] || {};
+    const customCols = customFieldMappings.map((cf) => cfValues[cf.erpField] || "—");
+
+    return [
+      <BlockStack gap="100">
+        <Text fontWeight="semibold">{m.productTitle}</Text>
+        {m.variantTitle && <Text tone="subdued" variant="bodySm">{m.variantTitle}</Text>}
+      </BlockStack>,
+      locationName(m.shopifyLocationId),
+      m.erpSku || <Badge tone="warning">Sin mapear</Badge>,
+      m.shopifyVariantId?.split("/").pop() || "—",
+      ...customCols,
+      m.syncEnabled ? (
+        <Badge tone="success">Activo</Badge>
+      ) : (
+        <Badge tone="subdued">Inactivo</Badge>
+      ),
+      <InlineStack gap="200">
+        <Button size="slim" onClick={() => openEdit(m)}>
+          Editar
         </Button>
-      </fetcher.Form>
-      <fetcher.Form method="post">
-        <input type="hidden" name="intent" value="delete-mapping" />
-        <input type="hidden" name="id" value={m.id} />
-        <Button size="slim" submit variant="plain" tone="critical">
-          Eliminar
-        </Button>
-      </fetcher.Form>
-    </InlineStack>,
-  ]);
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="toggle-sync" />
+          <input type="hidden" name="id" value={m.id} />
+          <Button size="slim" submit variant="plain">
+            {m.syncEnabled ? "Pausar" : "Activar"}
+          </Button>
+        </fetcher.Form>
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="delete-mapping" />
+          <input type="hidden" name="id" value={m.id} />
+          <Button size="slim" submit variant="plain" tone="critical">
+            Eliminar
+          </Button>
+        </fetcher.Form>
+      </InlineStack>,
+    ];
+  });
 
   return (
     <Page
@@ -311,12 +356,17 @@ export default function Products() {
             ) : (
               <>
                 <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  columnContentTypes={[
+                    "text", "text", "text", "text",
+                    ...customFieldMappings.map(() => "text"),
+                    "text", "text",
+                  ]}
                   headings={[
                     "Producto / Variante",
                     "Ubicación",
                     "SKU ERP",
                     "Variant ID Shopify",
+                    ...customFieldMappings.map((cf) => cf.erpField),
                     "Estado Sync",
                     "Acciones",
                   ]}
