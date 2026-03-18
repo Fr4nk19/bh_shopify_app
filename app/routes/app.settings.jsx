@@ -45,6 +45,8 @@ export const action = async ({ request }) => {
     const erpBaseUrl = formData.get("erpBaseUrl")?.toString().trim();
     const erpApiKey = formData.get("erpApiKey")?.toString().trim();
     const erpApiHeader = formData.get("erpApiHeader")?.toString().trim() || "X-Api-Key";
+    const erpCompanyId = parseInt(formData.get("erpCompanyId") || "0", 10) || null;
+    const erpBranchId = parseInt(formData.get("erpBranchId") || "0", 10) || null;
 
     if (!erpBaseUrl || !erpApiKey) {
       return json({ error: "URL y API Key son requeridos para probar la conexión" });
@@ -53,12 +55,14 @@ export const action = async ({ request }) => {
     // Temporarily upsert to test
     await db.shopSettings.upsert({
       where: { shop },
-      update: { erpBaseUrl, erpApiKey, erpApiHeader },
+      update: { erpBaseUrl, erpApiKey, erpApiHeader, erpCompanyId, erpBranchId },
       create: {
         shop,
         erpBaseUrl,
         erpApiKey,
         erpApiHeader,
+        erpCompanyId,
+        erpBranchId,
         syncEnabled: false,
       },
     });
@@ -71,6 +75,8 @@ export const action = async ({ request }) => {
     const erpBaseUrl = formData.get("erpBaseUrl")?.toString().trim();
     const erpApiKey = formData.get("erpApiKey")?.toString().trim();
     const erpApiHeader = formData.get("erpApiHeader")?.toString().trim() || "X-Api-Key";
+    const erpCompanyId = parseInt(formData.get("erpCompanyId") || "0", 10) || null;
+    const erpBranchId = parseInt(formData.get("erpBranchId") || "0", 10) || null;
     const syncEnabled = formData.get("syncEnabled") === "true";
     const syncIntervalMin = parseInt(formData.get("syncIntervalMin") || "15", 10);
 
@@ -84,6 +90,8 @@ export const action = async ({ request }) => {
         erpBaseUrl,
         erpApiKey,
         erpApiHeader,
+        erpCompanyId,
+        erpBranchId,
         syncEnabled,
         syncIntervalMin,
       },
@@ -92,6 +100,8 @@ export const action = async ({ request }) => {
         erpBaseUrl,
         erpApiKey,
         erpApiHeader,
+        erpCompanyId,
+        erpBranchId,
         syncEnabled,
         syncIntervalMin,
       },
@@ -113,6 +123,12 @@ export default function Settings() {
   const [erpApiKey, setErpApiKey] = useState(settings?.erpApiKey || "");
   const [erpApiHeader, setErpApiHeader] = useState(
     settings?.erpApiHeader || "X-Api-Key"
+  );
+  const [erpCompanyId, setErpCompanyId] = useState(
+    String(settings?.erpCompanyId || "")
+  );
+  const [erpBranchId, setErpBranchId] = useState(
+    String(settings?.erpBranchId || "")
   );
   const [syncEnabled, setSyncEnabled] = useState(settings?.syncEnabled ?? true);
   const [syncIntervalMin, setSyncIntervalMin] = useState(
@@ -193,6 +209,28 @@ export default function Settings() {
                       autoComplete="off"
                     />
                     <Divider />
+                    <Text variant="headingMd" as="h3">Empresa y Sucursal</Text>
+                    <TextField
+                      label="Company ID (Empresa)"
+                      name="erpCompanyId"
+                      type="number"
+                      value={erpCompanyId}
+                      onChange={setErpCompanyId}
+                      placeholder="1"
+                      helpText="ID de la empresa en el ERP. Requerido para consultas de inventario y productos."
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Branch ID (Sucursal)"
+                      name="erpBranchId"
+                      type="number"
+                      value={erpBranchId}
+                      onChange={setErpBranchId}
+                      placeholder="1"
+                      helpText="ID de la sucursal/bodega en el ERP. Requerido para consultas de inventario."
+                      autoComplete="off"
+                    />
+                    <Divider />
                     <Text variant="headingMd" as="h3">Sincronización Automática</Text>
                     <Checkbox
                       label="Activar sincronización automática (cron)"
@@ -236,6 +274,8 @@ export default function Settings() {
                     <input type="hidden" name="erpBaseUrl" value={erpBaseUrl} />
                     <input type="hidden" name="erpApiKey" value={erpApiKey} />
                     <input type="hidden" name="erpApiHeader" value={erpApiHeader} />
+                    <input type="hidden" name="erpCompanyId" value={erpCompanyId} />
+                    <input type="hidden" name="erpBranchId" value={erpBranchId} />
                     <Button
                       variant="secondary"
                       submit

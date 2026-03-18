@@ -36,6 +36,8 @@ model ShopSettings {
   erpBaseUrl      String
   erpApiKey       String
   erpApiHeader    String   @default("X-Api-Key")
+  erpCompanyId    Int?
+  erpBranchId     Int?
   syncEnabled     Boolean  @default(true)
   syncIntervalMin Int      @default(15)
   lastSyncAt      DateTime?
