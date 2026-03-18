@@ -30,7 +30,11 @@ import {
 import { useState } from "react";
 import { authenticate } from "../shopify.server.js";
 import { db } from "../db.server.js";
-import { getAllCustomers } from "../services/shopify-customers.server.js";
+import {
+  getAllCustomers,
+  getCustomer,
+  shopifyMetafieldsToErpFields,
+} from "../services/shopify-customers.server.js";
 import {
   getCustomerSyncStats,
   fullSyncCustomersErpToShopify,
@@ -59,7 +63,7 @@ export const loader = async ({ request }) => {
       : {}),
   };
 
-  const [total, mappings, stats] = await Promise.all([
+  const [total, mappings, stats, customFieldMappings] = await Promise.all([
     db.customerMapping.count({ where }),
     db.customerMapping.findMany({
       where,
@@ -68,9 +72,41 @@ export const loader = async ({ request }) => {
       take: PAGE_SIZE,
     }),
     getCustomerSyncStats(shop),
+    db.customFieldMapping.findMany({
+      where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
+      orderBy: { shopifyField: "asc" },
+    }),
   ]);
 
-  return json({ mappings, total, page, pageSize: PAGE_SIZE, stats, shop });
+  // Fetch Shopify metafields for each customer on this page and extract custom field values
+  const customFieldValues = {};
+  if (customFieldMappings.length > 0) {
+    const metafieldResults = await Promise.allSettled(
+      mappings.map((m) => getCustomer(admin.graphql, m.shopifyCustomerId))
+    );
+    for (let i = 0; i < mappings.length; i++) {
+      const result = metafieldResults[i];
+      if (result.status === "fulfilled" && result.value) {
+        customFieldValues[mappings[i].id] = shopifyMetafieldsToErpFields(
+          result.value.metafields || [],
+          customFieldMappings
+        );
+      } else {
+        customFieldValues[mappings[i].id] = {};
+      }
+    }
+  }
+
+  return json({
+    mappings,
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    stats,
+    shop,
+    customFieldMappings,
+    customFieldValues,
+  });
 };
 
 export const action = async ({ request }) => {
@@ -174,7 +210,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Customers() {
-  const { mappings, total, page, pageSize, stats } = useLoaderData();
+  const { mappings, total, page, pageSize, stats, customFieldMappings, customFieldValues } = useLoaderData();
   const actionData = useActionData();
   const fetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -207,45 +243,51 @@ export default function Customers() {
     closeEdit();
   };
 
-  const rows = mappings.map((m) => [
-    <BlockStack gap="100">
-      <Text fontWeight="semibold">
-        {[m.firstName, m.lastName].filter(Boolean).join(" ") || "Sin nombre"}
-      </Text>
-      {m.email && (
-        <Text tone="subdued" variant="bodySm">
-          {m.email}
+  const rows = mappings.map((m) => {
+    const cfValues = customFieldValues[m.id] || {};
+    const customCols = customFieldMappings.map((cf) => cfValues[cf.erpField] || "—");
+
+    return [
+      <BlockStack gap="100">
+        <Text fontWeight="semibold">
+          {[m.firstName, m.lastName].filter(Boolean).join(" ") || "Sin nombre"}
         </Text>
-      )}
-    </BlockStack>,
-    m.phone || "—",
-    m.erpCustomerCode || <Badge tone="warning">Sin mapear</Badge>,
-    m.shopifyCustomerId?.split("/").pop() || "—",
-    m.syncEnabled ? (
-      <Badge tone="success">Activo</Badge>
-    ) : (
-      <Badge tone="subdued">Inactivo</Badge>
-    ),
-    <InlineStack gap="200">
-      <Button size="slim" onClick={() => openEdit(m)}>
-        Editar
-      </Button>
-      <fetcher.Form method="post">
-        <input type="hidden" name="intent" value="toggle-sync" />
-        <input type="hidden" name="id" value={m.id} />
-        <Button size="slim" submit variant="plain">
-          {m.syncEnabled ? "Pausar" : "Activar"}
+        {m.email && (
+          <Text tone="subdued" variant="bodySm">
+            {m.email}
+          </Text>
+        )}
+      </BlockStack>,
+      m.phone || "—",
+      m.erpCustomerCode || <Badge tone="warning">Sin mapear</Badge>,
+      m.shopifyCustomerId?.split("/").pop() || "—",
+      ...customCols,
+      m.syncEnabled ? (
+        <Badge tone="success">Activo</Badge>
+      ) : (
+        <Badge tone="subdued">Inactivo</Badge>
+      ),
+      <InlineStack gap="200">
+        <Button size="slim" onClick={() => openEdit(m)}>
+          Editar
         </Button>
-      </fetcher.Form>
-      <fetcher.Form method="post">
-        <input type="hidden" name="intent" value="delete-mapping" />
-        <input type="hidden" name="id" value={m.id} />
-        <Button size="slim" submit variant="plain" tone="critical">
-          Eliminar
-        </Button>
-      </fetcher.Form>
-    </InlineStack>,
-  ]);
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="toggle-sync" />
+          <input type="hidden" name="id" value={m.id} />
+          <Button size="slim" submit variant="plain">
+            {m.syncEnabled ? "Pausar" : "Activar"}
+          </Button>
+        </fetcher.Form>
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="delete-mapping" />
+          <input type="hidden" name="id" value={m.id} />
+          <Button size="slim" submit variant="plain" tone="critical">
+            Eliminar
+          </Button>
+        </fetcher.Form>
+      </InlineStack>,
+    ];
+  });
 
   return (
     <Page
@@ -367,12 +409,17 @@ export default function Customers() {
             ) : (
               <>
                 <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  columnContentTypes={[
+                    "text", "text", "text", "text",
+                    ...customFieldMappings.map(() => "text"),
+                    "text", "text",
+                  ]}
                   headings={[
                     "Cliente",
                     "Teléfono",
                     "Código ERP",
                     "ID Shopify",
+                    ...customFieldMappings.map((cf) => cf.erpField),
                     "Estado Sync",
                     "Acciones",
                   ]}
