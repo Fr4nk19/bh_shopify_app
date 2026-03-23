@@ -271,6 +271,47 @@ export async function upsertErpCustomer(shop, code, customerData) {
   }
 }
 
+// ─── Sales ───────────────────────────────────────────────────────────────────
+
+/**
+ * Create a sale in the ERP from a Shopify order
+ * POST /api/shopify/sales?companyId=&branchId=
+ *
+ * @param {string} shop - Shop domain
+ * @param {object} orderData - Sale data matching ShopifySaleCreateRequest
+ * @param {string} orderData.shopifyOrderId - Shopify order ID
+ * @param {string} orderData.shopifyOrderNumber - Display order number
+ * @param {string} orderData.customerEmail - Customer email
+ * @param {string} orderData.customerCode - Customer DUI/NIT (optional)
+ * @param {number} orderData.companyBranchId - Branch ID
+ * @param {number} orderData.invoiceTypeId - Invoice type (1=Consumidor Final)
+ * @param {number} orderData.paymentTermId - Payment term (1=Contado)
+ * @param {number} orderData.catMhActividadesId - Economic activity ID
+ * @param {string} orderData.billingAddress - Billing address
+ * @param {string} orderData.shippingAddress - Shipping address
+ * @param {Array} orderData.lineItems - Array of { sku, quantity, price, discountPercent }
+ * @param {Array} orderData.payments - Array of { paymentMethodId, amount, referenceNumber }
+ * @returns {object} ShopifySaleResponse
+ */
+export async function createErpSale(shop, orderData) {
+  const { client, settings } = await getErpClient(shop);
+
+  const payload = {
+    ...orderData,
+    source: "shopify",
+  };
+
+  try {
+    const response = await client.post("/api/shopify/sales", payload, {
+      params: inventoryParams(settings),
+      timeout: 30000, // Sales can take longer
+    });
+    return response.data;
+  } catch (error) {
+    throw buildErpError("createErpSale", orderData.shopifyOrderId, error);
+  }
+}
+
 // ─── Custom Fields (not yet implemented in backend, kept as stubs) ──────────
 
 /**

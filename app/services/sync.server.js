@@ -8,6 +8,7 @@ import {
   getErpInventory,
   updateErpInventory,
   getAllErpInventory,
+  createErpSale,
 } from "./erp.server.js";
 import {
   setInventoryQuantity,
@@ -100,6 +101,164 @@ export async function syncShopifyToErp({
       shopifyLocationId: locationId,
       quantity: available,
       payload: { inventoryItemId, locationId, available },
+    });
+
+    throw error;
+  }
+}
+
+// ─── Shopify Order → ERP Sale ──────────────────────────────────────────────────
+
+/**
+ * Called when a Shopify order is created (via webhook)
+ * Creates a sale in the ERP with the order data
+ *
+ * @param {object} params
+ * @param {string} params.shop - Shop domain
+ * @param {object} params.order - Shopify order payload from webhook
+ * @param {string} params.source - Source identifier
+ */
+export async function syncOrderToErp({ shop, order, source = "webhook" }) {
+  const settings = await db.shopSettings.findUnique({ where: { shop } });
+
+  if (!settings) {
+    await logSync({
+      shop,
+      direction: "SHOPIFY_TO_ERP",
+      status: "SKIPPED",
+      source,
+      erpSku: `ORDER:${order.id}`,
+      errorMessage: "No ERP settings configured for this shop",
+    });
+    return { skipped: true, reason: "no_settings" };
+  }
+
+  // Map Shopify payment gateway to ERP payment method ID
+  const mapPaymentMethod = (gateway) => {
+    const g = (gateway || "").toLowerCase();
+    if (g.includes("cash") || g === "manual") return 1; // Efectivo
+    if (g.includes("debit")) return 2; // Débito
+    if (g.includes("credit") || g.includes("card") || g.includes("shopify_payments") || g.includes("stripe")) return 3; // Crédito
+    if (g.includes("transfer") || g.includes("bank")) return 5; // Transferencia
+    if (g.includes("paypal") || g.includes("digital")) return 8; // Dinero electrónico
+    if (g.includes("bitcoin") || g.includes("crypto")) return 11; // Bitcoin
+    return 99; // Otros
+  };
+
+  // Build line items from order line_items (only those with SKU)
+  const lineItems = (order.line_items || [])
+    .filter((item) => item.sku && item.sku.trim() !== "")
+    .map((item) => ({
+      sku: item.sku,
+      quantity: item.quantity,
+      price: parseFloat(item.price),
+      discountPercent: item.total_discount > 0
+        ? Math.round((parseFloat(item.total_discount) / (parseFloat(item.price) * item.quantity)) * 100 * 100) / 100
+        : 0,
+    }));
+
+  if (lineItems.length === 0) {
+    await logSync({
+      shop,
+      direction: "SHOPIFY_TO_ERP",
+      status: "SKIPPED",
+      source,
+      erpSku: `ORDER:${order.id}`,
+      errorMessage: "No line items with SKU found in the order",
+    });
+    return { skipped: true, reason: "no_skus" };
+  }
+
+  // Build billing address string
+  const billing = order.billing_address || {};
+  const billingAddress = [billing.address1, billing.address2, billing.city, billing.province, billing.country]
+    .filter(Boolean)
+    .join(", ");
+
+  // Build shipping address string
+  const shipping = order.shipping_address || {};
+  const shippingAddress = [shipping.address1, shipping.address2, shipping.city, shipping.province, shipping.country]
+    .filter(Boolean)
+    .join(", ");
+
+  // Build payments from Shopify transactions or use total
+  const payments = [];
+  if (order.payment_gateway_names && order.payment_gateway_names.length > 0) {
+    // Distribute total across gateways (Shopify doesn't give per-gateway amounts in webhook)
+    const perGateway = parseFloat(order.total_price) / order.payment_gateway_names.length;
+    for (const gateway of order.payment_gateway_names) {
+      payments.push({
+        paymentMethodId: mapPaymentMethod(gateway),
+        amount: Math.round(perGateway * 100) / 100,
+        referenceNumber: order.checkout_token || order.name,
+      });
+    }
+  } else {
+    payments.push({
+      paymentMethodId: 99,
+      amount: parseFloat(order.total_price),
+      referenceNumber: order.checkout_token || order.name,
+    });
+  }
+
+  // Resolve customer code from note attributes or use email
+  const customerCode = order.note_attributes?.find((a) => a.name === "customer_code" || a.name === "dui" || a.name === "nit")?.value || null;
+
+  const orderData = {
+    shopifyOrderId: String(order.id),
+    shopifyOrderNumber: order.name || `#${order.order_number}`,
+    customerEmail: order.email || order.customer?.email,
+    customerCode,
+    companyBranchId: parseInt(settings.erpBranchId, 10),
+    invoiceTypeId: 1, // Consumidor Final (default for Shopify sales)
+    paymentTermId: 1, // Contado
+    catMhActividadesId: parseInt(settings.erpCompanyId, 10), // Will need configuration
+    billingAddress: billingAddress || null,
+    shippingAddress: shippingAddress || null,
+    notes: order.note || null,
+    lineItems,
+    payments,
+  };
+
+  try {
+    const result = await createErpSale(shop, orderData);
+
+    await logSync({
+      shop,
+      direction: "SHOPIFY_TO_ERP",
+      status: "SUCCESS",
+      source,
+      erpSku: `ORDER:${order.id}`,
+      payload: JSON.stringify({
+        shopifyOrderNumber: orderData.shopifyOrderNumber,
+        erpSaleId: result.saleId,
+        correlativeNumber: result.correlativeNumber,
+        total: result.total,
+        skippedItems: result.skippedItems,
+      }),
+    });
+
+    return { success: true, saleId: result.saleId, result };
+  } catch (error) {
+    await logSync({
+      shop,
+      direction: "SHOPIFY_TO_ERP",
+      status: "FAILED",
+      source,
+      erpSku: `ORDER:${order.id}`,
+      errorMessage: error.message,
+      payload: JSON.stringify({
+        shopifyOrderNumber: orderData.shopifyOrderNumber,
+        lineItemCount: lineItems.length,
+      }),
+    });
+
+    // Queue for retry
+    await queueSync({
+      shop,
+      direction: "SHOPIFY_TO_ERP",
+      erpSku: `ORDER:${order.id}`,
+      payload: { orderId: order.id, orderData },
     });
 
     throw error;
