@@ -195,7 +195,7 @@ export default function Settings() {
                       value={erpApiKey}
                       onChange={setErpApiKey}
                       type="password"
-                      helpText="Clave de autenticación para tu ERP"
+                      helpText="Clave generada desde tu ERP (formato: shpk_...). Cada empresa genera su propia clave vinculada a su Company ID y Branch ID."
                       autoComplete="off"
                       requiredIndicator
                     />
@@ -217,7 +217,7 @@ export default function Settings() {
                       value={erpCompanyId}
                       onChange={setErpCompanyId}
                       placeholder="1"
-                      helpText="ID de la empresa en el ERP. Requerido para consultas de inventario y productos."
+                      helpText="ID de la empresa en el ERP. Opcional si usas una API Key per-company (se resuelve automaticamente desde la clave)."
                       autoComplete="off"
                     />
                     <TextField
@@ -227,7 +227,7 @@ export default function Settings() {
                       value={erpBranchId}
                       onChange={setErpBranchId}
                       placeholder="1"
-                      helpText="ID de la sucursal/bodega en el ERP. Requerido para consultas de inventario."
+                      helpText="ID de la sucursal/bodega en el ERP. Opcional si usas una API Key per-company."
                       autoComplete="off"
                     />
                     <Divider />
