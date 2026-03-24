@@ -219,6 +219,9 @@ export default function Dashboard() {
                 <Text variant="headingMd" as="h3">Acciones Rápidas</Text>
                 <Divider />
                 <BlockStack gap="200">
+                  <Button url="/app/orders" variant="primary">
+                    Órdenes / Crear Facturas
+                  </Button>
                   <Button url="/app/products" variant="secondary">
                     Gestionar Mapeo de Productos
                   </Button>
