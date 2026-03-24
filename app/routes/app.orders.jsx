@@ -31,7 +31,7 @@ import { db } from "../db.server.js";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
-const ORDERS_QUERY = `
+const ORDERS_QUERY = `#graphql
   query GetOrders($first: Int!, $after: String) {
     orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
       edges {
@@ -65,7 +65,7 @@ const ORDERS_QUERY = `
                     amount
                   }
                 }
-                totalDiscountSet {
+                discountedTotalSet {
                   shopMoney {
                     amount
                   }
@@ -89,14 +89,6 @@ const ORDERS_QUERY = `
           }
           note
           paymentGatewayNames
-          transactions(first: 10) {
-            gateway
-            amountSet {
-              shopMoney {
-                amount
-              }
-            }
-          }
         }
       }
       pageInfo {
@@ -114,35 +106,50 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const after = url.searchParams.get("after") || null;
 
-  const response = await admin.graphql(ORDERS_QUERY, {
-    variables: { first: 25, after },
-  });
-  const { data } = await response.json();
+  let orders = [];
+  let pageInfo = { hasNextPage: false, endCursor: null };
+
+  try {
+    const response = await admin.graphql(ORDERS_QUERY, {
+      variables: { first: 25, after },
+    });
+    const responseJson = await response.json();
+    const data = responseJson.data;
+
+    if (data?.orders) {
+      orders = data.orders.edges.map((e) => e.node);
+      pageInfo = data.orders.pageInfo;
+    }
+  } catch (err) {
+    console.error("Error fetching orders from Shopify:", err);
+  }
 
   const settings = await db.shopSettings.findUnique({ where: { shop } });
 
   // Check which orders have already been synced to ERP
-  const orderIds = data.orders.edges.map((e) => `ORDER:${e.node.id}`);
-  const syncedOrders = await db.syncLog.findMany({
-    where: {
-      shop,
-      erpSku: { in: orderIds },
-      status: "SUCCESS",
-    },
-    select: { erpSku: true, payload: true, createdAt: true },
-  });
-
   const syncedMap = {};
-  for (const log of syncedOrders) {
-    syncedMap[log.erpSku] = {
-      syncedAt: log.createdAt,
-      payload: log.payload,
-    };
+  if (orders.length > 0) {
+    const orderIds = orders.map((o) => `ORDER:${o.id}`);
+    const syncedOrders = await db.syncLog.findMany({
+      where: {
+        shop,
+        erpSku: { in: orderIds },
+        status: "SUCCESS",
+      },
+      select: { erpSku: true, payload: true, createdAt: true },
+    });
+
+    for (const log of syncedOrders) {
+      syncedMap[log.erpSku] = {
+        syncedAt: log.createdAt,
+        payload: log.payload,
+      };
+    }
   }
 
   return json({
-    orders: data.orders.edges.map((e) => e.node),
-    pageInfo: data.orders.pageInfo,
+    orders,
+    pageInfo,
     settings,
     syncedMap,
     shop,
@@ -346,16 +353,17 @@ export default function OrdersPage() {
       .filter((e) => e.node.sku && e.node.sku.trim() !== "")
       .map((e) => {
         const item = e.node;
-        const price = parseFloat(item.originalUnitPriceSet.shopMoney.amount);
-        const totalDiscount = parseFloat(item.totalDiscountSet.shopMoney.amount);
+        const originalPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount ?? "0");
+        const discountedTotal = parseFloat(item.discountedTotalSet?.shopMoney?.amount ?? "0");
+        const originalTotal = originalPrice * item.quantity;
         const discountPercent =
-          totalDiscount > 0
-            ? Math.round((totalDiscount / (price * item.quantity)) * 100 * 100) / 100
+          originalTotal > 0 && discountedTotal < originalTotal
+            ? Math.round(((originalTotal - discountedTotal) / originalTotal) * 100 * 100) / 100
             : 0;
         return {
           sku: item.sku,
           quantity: item.quantity,
-          price,
+          price: originalPrice,
           discountPercent,
         };
       });
@@ -621,7 +629,7 @@ export default function OrdersPage() {
                     e.node.sku,
                     e.node.name,
                     String(e.node.quantity),
-                    `$${parseFloat(e.node.originalUnitPriceSet.shopMoney.amount).toFixed(2)}`,
+                    `$${parseFloat(e.node.originalUnitPriceSet?.shopMoney?.amount ?? "0").toFixed(2)}`,
                   ])}
               />
             </BlockStack>
