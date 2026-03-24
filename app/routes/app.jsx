@@ -17,6 +17,7 @@ export default function App() {
     <AppProvider isEmbeddedApp apiKey={process.env.SHOPIFY_API_KEY}>
       <NavMenu>
         <a href="/app" rel="home">Dashboard</a>
+        <a href="/app/orders">Órdenes</a>
         <a href="/app/products">Mapeo de Productos</a>
         <a href="/app/customers">Mapeo de Clientes</a>
         <a href="/app/custom-fields">Campos Personalizados</a>
