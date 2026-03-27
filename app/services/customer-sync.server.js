@@ -89,7 +89,7 @@ export async function syncCustomerShopifyToErp({
         return found?.value ?? null;
       };
 
-      const nitDui = mf("custom", "nit_dui");
+      const nitDui = mf("custom", "customer_dui");
       if (nitDui) {
         erpCode = nitDui;
         erpPayload.code = nitDui;
@@ -125,7 +125,7 @@ export async function syncCustomerShopifyToErp({
     }
 
     if (!erpCode) {
-      console.warn(`[CustomerSync] No valid DUI/NIT found for customer ${mapping.shopifyCustomerId}. Metafield custom.nit_dui is missing. Skipping.`);
+      console.warn(`[CustomerSync] No valid DUI/NIT found for customer ${mapping.shopifyCustomerId}. Metafield custom.customer_dui is missing. Skipping.`);
       return { skipped: true, reason: "no_dui" };
     }
 
