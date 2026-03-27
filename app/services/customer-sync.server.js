@@ -72,8 +72,8 @@ export async function syncCustomerShopifyToErp({
       companyName: addr?.company || null,
     };
 
-    // Determine the code to use: prefer metafield nit_dui, fallback to mapping
-    let erpCode = mapping.erpCustomerCode;
+    // Determine the code to use: metafield nit_dui is the customer_dui in ERP
+    let erpCode = null;
 
     console.log(`[CustomerSync] Shopify customer=${mapping.shopifyCustomerId}, mapping.erpCustomerCode=${mapping.erpCustomerCode}, metafields count=${customerData.metafields?.length ?? 0}`);
     if (customerData.metafields?.length) {
@@ -91,8 +91,8 @@ export async function syncCustomerShopifyToErp({
 
       const nitDui = mf("custom", "nit_dui");
       if (nitDui) {
+        erpCode = nitDui;
         erpPayload.code = nitDui;
-        erpCode = nitDui; // Use metafield value as the actual ERP code
       }
 
       const tipoDocId = mf("custom", "tipo_documento_id");
@@ -112,6 +112,21 @@ export async function syncCustomerShopifyToErp({
 
       const isForeigner = mf("custom", "is_foreigner");
       if (isForeigner != null) erpPayload.isForeigner = isForeigner === "true";
+    }
+
+    // If no nit_dui metafield found, check if mapping has a valid (non-Shopify-ID) code
+    if (!erpCode && mapping.erpCustomerCode && !mapping.erpCustomerCode.startsWith("gid://")) {
+      // Only use mapping code if it looks like a real DUI/NIT (not a Shopify ID)
+      const code = mapping.erpCustomerCode;
+      const looksLikeShopifyId = /^\d{10,}$/.test(code);
+      if (!looksLikeShopifyId) {
+        erpCode = code;
+      }
+    }
+
+    if (!erpCode) {
+      console.warn(`[CustomerSync] No valid DUI/NIT found for customer ${mapping.shopifyCustomerId}. Metafield custom.nit_dui is missing. Skipping.`);
+      return { skipped: true, reason: "no_dui" };
     }
 
     console.log(`[CustomerSync] Resolved erpCode=${erpCode}, PUT /api/shopify/customers/${erpCode}`);
@@ -136,10 +151,10 @@ export async function syncCustomerShopifyToErp({
       status: "SUCCESS",
       source,
       shopifyCustomerId,
-      erpCustomerCode: mapping.erpCustomerCode,
+      erpCustomerCode: erpCode,
     });
 
-    return { success: true, erpCode: mapping.erpCustomerCode };
+    return { success: true, erpCode };
   } catch (error) {
     await logCustomerSync({
       shop,
@@ -147,7 +162,7 @@ export async function syncCustomerShopifyToErp({
       status: "FAILED",
       source,
       shopifyCustomerId,
-      erpCustomerCode: mapping.erpCustomerCode,
+      erpCustomerCode: erpCode || mapping.erpCustomerCode,
       errorMessage: error.message,
     });
     throw error;
