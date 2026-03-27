@@ -37,7 +37,7 @@ import {
 } from "../services/shopify-customers.server.js";
 import {
   getCustomerSyncStats,
-  fullSyncCustomersErpToShopify,
+  fullSyncCustomersShopifyToErp,
 } from "../services/customer-sync.server.js";
 
 const PAGE_SIZE = 20;
@@ -164,7 +164,7 @@ export const action = async ({ request }) => {
 
   if (intent === "full-sync") {
     try {
-      const results = await fullSyncCustomersErpToShopify({
+      const results = await fullSyncCustomersShopifyToErp({
         shop,
         graphql: admin.graphql,
         source: "manual",
@@ -303,7 +303,7 @@ export default function Customers() {
       }}
       secondaryActions={[
         {
-          content: "Sincronizar Clientes",
+          content: "Sincronizar a ERP",
           onAction: () => {
             fetcher.submit({ intent: "full-sync" }, { method: "POST" });
           },

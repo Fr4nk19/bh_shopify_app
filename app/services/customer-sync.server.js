@@ -235,25 +235,52 @@ export async function syncCustomerErpToShopify({
   return { results };
 }
 
-// ─── Full Sync (ERP → Shopify for all mapped customers) ─────────────────────
+// ─── Full Sync (Shopify → ERP for all mapped customers) ─────────────────────
 
 /**
- * Pull all customers from ERP and update Shopify for all mapped customers
+ * Read all mapped customers from Shopify and push them to the ERP.
+ * This is the primary sync direction: Shopify is the source of truth.
  */
-export async function fullSyncCustomersErpToShopify({ shop, graphql, source = "cron" }) {
-  const erpCustomers = await getAllErpCustomers(shop);
+export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "manual" }) {
+  const mappings = await db.customerMapping.findMany({
+    where: { shop, syncEnabled: true, erpCustomerCode: { not: "" } },
+  });
+
   const results = { success: 0, failed: 0, skipped: 0 };
 
-  for (const customer of erpCustomers) {
-    const { code } = customer;
+  for (const mapping of mappings) {
     try {
-      const result = await syncCustomerErpToShopify({
+      // Fetch full customer data from Shopify (including metafields)
+      const customer = await getCustomer(graphql, mapping.shopifyCustomerId);
+      if (!customer) {
+        await logCustomerSync({
+          shop,
+          direction: "SHOPIFY_TO_ERP",
+          status: "SKIPPED",
+          source,
+          shopifyCustomerId: mapping.shopifyCustomerId,
+          erpCustomerCode: mapping.erpCustomerCode,
+          errorMessage: `Shopify customer not found: ${mapping.shopifyCustomerId}`,
+        });
+        results.skipped++;
+        continue;
+      }
+
+      // Use syncCustomerShopifyToErp which already handles payload building
+      const result = await syncCustomerShopifyToErp({
         shop,
-        erpCustomerCode: code,
-        customerData: customer,
-        graphql,
+        shopifyCustomerId: mapping.shopifyCustomerId,
+        customerData: {
+          firstName: customer.firstName,
+          lastName: customer.lastName,
+          email: customer.email,
+          phone: customer.phone,
+          defaultAddress: customer.defaultAddress,
+          metafields: customer.metafields,
+        },
         source,
       });
+
       if (result.skipped) results.skipped++;
       else results.success++;
     } catch {
