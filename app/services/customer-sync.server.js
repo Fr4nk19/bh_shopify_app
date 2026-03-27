@@ -53,14 +53,55 @@ export async function syncCustomerShopifyToErp({
   }
 
   try {
+    // Build address from Shopify default address
+    const addr = customerData.defaultAddress || customerData.default_address;
+    const addressStr = addr
+      ? [addr.address1, addr.address2, addr.city, addr.province, addr.country]
+          .filter(Boolean)
+          .join(", ")
+      : null;
+
     // Sync basic customer data
     const erpPayload = {
       firstName: customerData.firstName || customerData.first_name,
       lastName: customerData.lastName || customerData.last_name,
       email: customerData.email,
       phone: customerData.phone,
-      address: customerData.defaultAddress || customerData.default_address || null,
+      address: addressStr,
+      postalCode: addr?.zip || null,
+      companyName: addr?.company || null,
     };
+
+    // Extract ERP-specific fields from metafields (if available)
+    if (customerData.metafields && Array.isArray(customerData.metafields)) {
+      const mf = (ns, key) => {
+        const found = customerData.metafields.find(
+          (m) => m.namespace === ns && m.key === key
+        );
+        return found?.value ?? null;
+      };
+
+      const nitDui = mf("custom", "nit_dui");
+      if (nitDui) erpPayload.code = nitDui;
+
+      const tipoDocId = mf("custom", "tipo_documento_id");
+      if (tipoDocId) erpPayload.tipoDocumentoId = parseInt(tipoDocId, 10);
+
+      const tipoPersonaId = mf("custom", "tipo_persona_id");
+      if (tipoPersonaId) erpPayload.tipoPersonaId = parseInt(tipoPersonaId, 10);
+
+      const isTaxpayer = mf("custom", "is_taxpayer");
+      if (isTaxpayer != null) erpPayload.isTaxpayer = isTaxpayer === "true";
+
+      const nrc = mf("custom", "company_nrc");
+      if (nrc) erpPayload.nrc = nrc;
+
+      const companyNumber = mf("custom", "company_number");
+      if (companyNumber) erpPayload.companyNumber = companyNumber;
+
+      const isForeigner = mf("custom", "is_foreigner");
+      if (isForeigner != null) erpPayload.isForeigner = isForeigner === "true";
+    }
 
     await upsertErpCustomer(shop, mapping.erpCustomerCode, erpPayload);
 
