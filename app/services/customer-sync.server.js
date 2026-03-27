@@ -264,25 +264,22 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
 
   console.log(`[FullSync] Found ${mappings.length} mappings for shop=${shop}. Codes:`, mappings.map(m => `${m.shopifyCustomerId} → ${m.erpCustomerCode}`));
 
-  const results = { success: 0, failed: 0, skipped: 0 };
+  const results = { success: 0, failed: 0, skipped: 0, details: [] };
 
   for (const mapping of mappings) {
     try {
       // Fetch full customer data from Shopify (including metafields)
       const customer = await getCustomer(graphql, mapping.shopifyCustomerId);
       if (!customer) {
-        await logCustomerSync({
-          shop,
-          direction: "SHOPIFY_TO_ERP",
-          status: "SKIPPED",
-          source,
-          shopifyCustomerId: mapping.shopifyCustomerId,
-          erpCustomerCode: mapping.erpCustomerCode,
-          errorMessage: `Shopify customer not found: ${mapping.shopifyCustomerId}`,
-        });
+        const reason = `Shopify customer not found: ${mapping.shopifyCustomerId}`;
+        console.warn(`[FullSync] SKIP: ${reason}`);
+        results.details.push({ id: mapping.shopifyCustomerId, status: "skipped", reason });
         results.skipped++;
         continue;
       }
+
+      console.log(`[FullSync] Processing ${mapping.shopifyCustomerId}, metafields:`,
+        (customer.metafields || []).map(m => `${m.namespace}.${m.key}=${m.value}`));
 
       // Use syncCustomerShopifyToErp, passing the mapping to avoid redundant DB lookup
       const result = await syncCustomerShopifyToErp({
@@ -300,10 +297,16 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
         source,
       });
 
-      if (result.skipped) results.skipped++;
-      else results.success++;
+      if (result.skipped) {
+        results.details.push({ id: mapping.shopifyCustomerId, status: "skipped", reason: result.reason });
+        results.skipped++;
+      } else {
+        results.details.push({ id: mapping.shopifyCustomerId, status: "success", erpCode: result.erpCode });
+        results.success++;
+      }
     } catch (error) {
       console.error(`[FullSync] FAILED for ${mapping.shopifyCustomerId} (erpCode=${mapping.erpCustomerCode}):`, error.message);
+      results.details.push({ id: mapping.shopifyCustomerId, status: "failed", error: error.message });
       results.failed++;
     }
   }

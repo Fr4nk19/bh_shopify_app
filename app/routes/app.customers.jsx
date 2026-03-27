@@ -170,7 +170,12 @@ export const action = async ({ request }) => {
         graphql: admin.graphql,
         source: "manual",
       });
-      return json({ success: `Sincronización completada: ${results.success} exitosos, ${results.failed} fallidos, ${results.skipped} omitidos.` });
+      const detailLines = (results.details || [])
+        .filter(d => d.status !== "success")
+        .map(d => `${d.id}: ${d.status} - ${d.reason || d.error || ""}`)
+        .join(" | ");
+      const summary = `Sincronización completada: ${results.success} exitosos, ${results.failed} fallidos, ${results.skipped} omitidos.`;
+      return json({ success: detailLines ? `${summary} Detalle: ${detailLines}` : summary });
     } catch (err) {
       return json({ error: `Error en sincronización: ${err.message}` }, { status: 500 });
     }
