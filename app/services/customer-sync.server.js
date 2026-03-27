@@ -75,6 +75,11 @@ export async function syncCustomerShopifyToErp({
     // Determine the code to use: prefer metafield nit_dui, fallback to mapping
     let erpCode = mapping.erpCustomerCode;
 
+    console.log(`[CustomerSync] Shopify customer=${mapping.shopifyCustomerId}, mapping.erpCustomerCode=${mapping.erpCustomerCode}, metafields count=${customerData.metafields?.length ?? 0}`);
+    if (customerData.metafields?.length) {
+      console.log(`[CustomerSync] Metafields:`, customerData.metafields.map(m => `${m.namespace}.${m.key}=${m.value}`).join(', '));
+    }
+
     // Extract ERP-specific fields from metafields (if available)
     if (customerData.metafields && Array.isArray(customerData.metafields)) {
       const mf = (ns, key) => {
@@ -109,6 +114,7 @@ export async function syncCustomerShopifyToErp({
       if (isForeigner != null) erpPayload.isForeigner = isForeigner === "true";
     }
 
+    console.log(`[CustomerSync] Resolved erpCode=${erpCode}, PUT /api/shopify/customers/${erpCode}`);
     await upsertErpCustomer(shop, erpCode, erpPayload);
 
     // Update mapping with the resolved erpCode (in case metafield changed it)
