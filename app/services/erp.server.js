@@ -360,7 +360,9 @@ function buildErpError(operation, identifier, error) {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     const data = error.response?.data;
-    const detail = data?.message || data?.detail || (typeof data === "string" ? data : null) || error.message;
+    const msg = data?.message;
+    const dtl = data?.detail;
+    const detail = msg && dtl ? `${msg} ${dtl}` : (msg || dtl || (typeof data === "string" ? data : null) || error.message);
     const url = error.config?.url;
 
     console.error(`[ERP Error] ${operation} ${url} → ${status}:`, typeof data === "object" ? JSON.stringify(data) : data);
