@@ -39,6 +39,7 @@ async function getErpClient(shop) {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        "ngrok-skip-browser-warning": "true",
         [settings.erpApiHeader]: settings.erpApiKey,
       },
     }),
@@ -358,10 +359,14 @@ export async function updateErpCustomerCustomFields(shop, code, fields) {
 function buildErpError(operation, identifier, error) {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
-    const detail = error.response?.data?.message || error.response?.data || error.message;
+    const data = error.response?.data;
+    const detail = data?.message || data?.detail || (typeof data === "string" ? data : null) || error.message;
+    const url = error.config?.url;
+
+    console.error(`[ERP Error] ${operation} ${url} → ${status}:`, typeof data === "object" ? JSON.stringify(data) : data);
 
     if (status === 401 || status === 403) {
-      return new Error(`ERP: API Key inválida o sin permisos (${status})`);
+      return new Error(`ERP: API Key inválida o sin permisos (${status}) en ${operation}. URL: ${url}. Detalle: ${detail}`);
     }
     if (status === 404) {
       return new Error(`ERP: No encontrado${identifier ? ` - ${identifier}` : ""} (404)`);
