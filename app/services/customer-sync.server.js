@@ -73,8 +73,8 @@ export async function syncCustomerShopifyToErp({
       companyName: addr?.company || null,
     };
 
-    // Determine the code to use: metafield nit_dui is the customer_dui in ERP
-    let erpCode = null;
+    // Determine the code to use: prefer metafield custom.customer_dui, fallback to mapping
+    let erpCode = mapping.erpCustomerCode || null;
 
     console.log(`[CustomerSync] Shopify customer=${mapping.shopifyCustomerId}, mapping.erpCustomerCode=${mapping.erpCustomerCode}, metafields count=${customerData.metafields?.length ?? 0}`);
     if (customerData.metafields?.length) {
@@ -90,10 +90,10 @@ export async function syncCustomerShopifyToErp({
         return found?.value ?? null;
       };
 
-      const nitDui = mf("custom", "customer_dui");
-      if (nitDui) {
-        erpCode = nitDui;
-        erpPayload.code = nitDui;
+      const customerDui = mf("custom", "customer_dui");
+      if (customerDui) {
+        erpCode = customerDui;
+        erpPayload.code = customerDui;
       }
 
       const tipoDocId = mf("custom", "tipo_documento_id");
@@ -115,18 +115,8 @@ export async function syncCustomerShopifyToErp({
       if (isForeigner != null) erpPayload.isForeigner = isForeigner === "true";
     }
 
-    // If no nit_dui metafield found, check if mapping has a valid (non-Shopify-ID) code
-    if (!erpCode && mapping.erpCustomerCode && !mapping.erpCustomerCode.startsWith("gid://")) {
-      // Only use mapping code if it looks like a real DUI/NIT (not a Shopify ID)
-      const code = mapping.erpCustomerCode;
-      const looksLikeShopifyId = /^\d{10,}$/.test(code);
-      if (!looksLikeShopifyId) {
-        erpCode = code;
-      }
-    }
-
     if (!erpCode) {
-      console.warn(`[CustomerSync] No valid DUI/NIT found for customer ${mapping.shopifyCustomerId}. Metafield custom.customer_dui is missing. Skipping.`);
+      console.warn(`[CustomerSync] No DUI found for customer ${mapping.shopifyCustomerId}. Set custom.customer_dui metafield or erpCustomerCode in mapping.`);
       return { skipped: true, reason: "no_dui" };
     }
 
