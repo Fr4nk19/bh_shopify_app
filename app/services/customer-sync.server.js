@@ -259,7 +259,7 @@ export async function syncCustomerErpToShopify({
  */
 export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "manual" }) {
   const mappings = await db.customerMapping.findMany({
-    where: { shop, syncEnabled: true, erpCustomerCode: { not: "" } },
+    where: { shop, syncEnabled: true },
   });
 
   console.log(`[FullSync] Found ${mappings.length} mappings for shop=${shop}. Codes:`, mappings.map(m => `${m.shopifyCustomerId} → ${m.erpCustomerCode}`));
