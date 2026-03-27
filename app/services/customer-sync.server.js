@@ -53,6 +53,8 @@ export async function syncCustomerShopifyToErp({
     return { skipped: true, reason: "no_mapping" };
   }
 
+  let erpCode = mapping.erpCustomerCode || null;
+
   try {
     // Build address from Shopify default address
     const addr = customerData.defaultAddress || customerData.default_address;
@@ -72,9 +74,6 @@ export async function syncCustomerShopifyToErp({
       postalCode: addr?.zip || null,
       companyName: addr?.company || null,
     };
-
-    // Determine the code to use: prefer metafield custom.customer_dui, fallback to mapping
-    let erpCode = mapping.erpCustomerCode || null;
 
     console.log(`[CustomerSync] Shopify customer=${mapping.shopifyCustomerId}, mapping.erpCustomerCode=${mapping.erpCustomerCode}, metafields count=${customerData.metafields?.length ?? 0}`);
     if (customerData.metafields?.length) {
