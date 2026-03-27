@@ -188,7 +188,7 @@ export async function testErpConnection(shop) {
       message += " (advertencia: integración Shopify no configurada en el backend)";
     }
 
-    // Also verify inventory access if companyId/branchId are set
+    // Verify API key by calling an authenticated endpoint
     if (settings.erpCompanyId && settings.erpBranchId) {
       try {
         const invRes = await client.get("/api/shopify/inventory", {
@@ -196,7 +196,14 @@ export async function testErpConnection(shop) {
         });
         const items = Array.isArray(invRes.data) ? invRes.data : invRes.data.items || [];
         message += `. ${items.length} items de inventario encontrados.`;
-      } catch {
+      } catch (invError) {
+        const status = invError.response?.status;
+        if (status === 401 || status === 403) {
+          return {
+            success: false,
+            message: "API Key inválida. La conexión al servidor funciona pero la autenticación falló. Verifica que la API Key sea correcta y esté activa.",
+          };
+        }
         message += ". No se pudo verificar el inventario (verifica Company ID y Branch ID).";
       }
     }
