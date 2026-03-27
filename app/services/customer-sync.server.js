@@ -34,9 +34,10 @@ export async function syncCustomerShopifyToErp({
   shop,
   shopifyCustomerId,
   customerData,
+  existingMapping = null,
   source = "webhook",
 }) {
-  const mapping = await db.customerMapping.findFirst({
+  const mapping = existingMapping || await db.customerMapping.findFirst({
     where: { shop, shopifyCustomerId, syncEnabled: true },
   });
 
@@ -293,7 +294,7 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
         continue;
       }
 
-      // Use syncCustomerShopifyToErp which already handles payload building
+      // Use syncCustomerShopifyToErp, passing the mapping to avoid redundant DB lookup
       const result = await syncCustomerShopifyToErp({
         shop,
         shopifyCustomerId: mapping.shopifyCustomerId,
@@ -305,6 +306,7 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
           defaultAddress: customer.defaultAddress,
           metafields: customer.metafields,
         },
+        existingMapping: mapping,
         source,
       });
 
