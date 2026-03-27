@@ -256,6 +256,8 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
     where: { shop, syncEnabled: true, erpCustomerCode: { not: "" } },
   });
 
+  console.log(`[FullSync] Found ${mappings.length} mappings for shop=${shop}. Codes:`, mappings.map(m => `${m.shopifyCustomerId} → ${m.erpCustomerCode}`));
+
   const results = { success: 0, failed: 0, skipped: 0 };
 
   for (const mapping of mappings) {
@@ -293,7 +295,8 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
 
       if (result.skipped) results.skipped++;
       else results.success++;
-    } catch {
+    } catch (error) {
+      console.error(`[FullSync] FAILED for ${mapping.shopifyCustomerId} (erpCode=${mapping.erpCustomerCode}):`, error.message);
       results.failed++;
     }
   }
