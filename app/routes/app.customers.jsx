@@ -134,6 +134,7 @@ export const action = async ({ request }) => {
             lastName: customer.lastName,
             email: customer.email,
             phone: customer.phone,
+            syncEnabled: true,
           },
           create: {
             shop,
@@ -143,7 +144,7 @@ export const action = async ({ request }) => {
             lastName: customer.lastName,
             email: customer.email,
             phone: customer.phone,
-            syncEnabled: false,
+            syncEnabled: true,
           },
         });
 
