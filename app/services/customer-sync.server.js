@@ -72,6 +72,14 @@ export async function syncCustomerShopifyToErp({
       companyName: addr?.company || null,
     };
 
+    // Determine the code to use: prefer metafield nit_dui, fallback to mapping
+    let erpCode = mapping.erpCustomerCode;
+
+    console.log(`[CustomerSync] Shopify customer=${mapping.shopifyCustomerId}, mapping.erpCustomerCode=${mapping.erpCustomerCode}, metafields count=${customerData.metafields?.length ?? 0}`);
+    if (customerData.metafields?.length) {
+      console.log(`[CustomerSync] Metafields:`, customerData.metafields.map(m => `${m.namespace}.${m.key}=${m.value}`).join(', '));
+    }
+
     // Extract ERP-specific fields from metafields (if available)
     if (customerData.metafields && Array.isArray(customerData.metafields)) {
       const mf = (ns, key) => {
@@ -82,7 +90,10 @@ export async function syncCustomerShopifyToErp({
       };
 
       const nitDui = mf("custom", "nit_dui");
-      if (nitDui) erpPayload.code = nitDui;
+      if (nitDui) {
+        erpPayload.code = nitDui;
+        erpCode = nitDui; // Use metafield value as the actual ERP code
+      }
 
       const tipoDocId = mf("custom", "tipo_documento_id");
       if (tipoDocId) erpPayload.tipoDocumentoId = parseInt(tipoDocId, 10);
@@ -103,15 +114,14 @@ export async function syncCustomerShopifyToErp({
       if (isForeigner != null) erpPayload.isForeigner = isForeigner === "true";
     }
 
-    await upsertErpCustomer(shop, mapping.erpCustomerCode, erpPayload);
+    console.log(`[CustomerSync] Resolved erpCode=${erpCode}, PUT /api/shopify/customers/${erpCode}`);
+    await upsertErpCustomer(shop, erpCode, erpPayload);
 
-    // Sync custom fields (metafields → ERP custom fields)
-    await syncCustomerCustomFieldsToErp({ shop, shopifyCustomerId, erpCode: mapping.erpCustomerCode, graphql: null });
-
-    // Update mapping
+    // Update mapping with the resolved erpCode (in case metafield changed it)
     await db.customerMapping.update({
       where: { id: mapping.id },
       data: {
+        erpCustomerCode: erpCode,
         firstName: erpPayload.firstName,
         lastName: erpPayload.lastName,
         email: erpPayload.email,
