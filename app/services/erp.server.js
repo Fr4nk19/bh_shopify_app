@@ -371,7 +371,7 @@ function buildErpError(operation, identifier, error) {
       return new Error(`ERP: API Key inválida o sin permisos (${status}) en ${operation}. URL: ${url}. Detalle: ${detail}`);
     }
     if (status === 404) {
-      return new Error(`ERP: No encontrado${identifier ? ` - ${identifier}` : ""} (404)`);
+      return new Error(`ERP: No encontrado${identifier ? ` - ${identifier}` : ""} (404) en ${operation}. URL: ${url}`);
     }
     if (status === 422 || status === 400) {
       return new Error(`ERP: Datos inválidos en ${operation}: ${JSON.stringify(detail)}`);
