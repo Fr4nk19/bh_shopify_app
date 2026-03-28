@@ -320,6 +320,23 @@ export async function createErpSale(shop, orderData) {
   }
 }
 
+// ─── Catalogs ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get all MH catalogs for customers (departamentos, tipos documento, etc.)
+ * GET /api/shopify/catalogs
+ */
+export async function getErpCatalogs(shop) {
+  const { client } = await getErpClient(shop);
+
+  try {
+    const response = await client.get("/api/shopify/catalogs");
+    return response.data;
+  } catch (error) {
+    throw buildErpError("getErpCatalogs", null, error);
+  }
+}
+
 // ─── Custom Fields (not yet implemented in backend, kept as stubs) ──────────
 
 /**
