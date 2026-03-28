@@ -78,7 +78,10 @@ export const loader = async ({ request }) => {
       where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
       orderBy: { shopifyField: "asc" },
     }),
-    getErpCatalogs(shop).catch(() => null),
+    getErpCatalogs(shop).catch((err) => {
+      console.error("[Loader] Failed to load catalogs:", err.message);
+      return null;
+    }),
   ]);
 
   // Fetch Shopify metafields for each customer on this page and extract custom field values
