@@ -35,6 +35,7 @@ import {
   getAllCustomers,
   getCustomer,
   shopifyMetafieldsToErpFields,
+  createCustomerMetafieldDefinitions,
 } from "../services/shopify-customers.server.js";
 import {
   getCustomerSyncStats,
@@ -254,6 +255,19 @@ export const action = async ({ request }) => {
     return json({ success: "Estado actualizado" });
   }
 
+  if (intent === "setup-metafields") {
+    try {
+      const results = await createCustomerMetafieldDefinitions(admin.graphql);
+      const msg = `Metafields configurados: ${results.created} creados, ${results.skipped} ya existían.`;
+      if (results.errors.length > 0) {
+        return json({ success: `${msg} Errores: ${results.errors.join(" | ")}` });
+      }
+      return json({ success: msg });
+    } catch (err) {
+      return json({ error: `Error al configurar metafields: ${err.message}` }, { status: 500 });
+    }
+  }
+
   return json({ error: "Acción no válida" }, { status: 400 });
 };
 
@@ -389,6 +403,12 @@ export default function Customers() {
           content: "Sincronizar a ERP",
           onAction: () => {
             fetcher.submit({ intent: "full-sync" }, { method: "POST" });
+          },
+        },
+        {
+          content: "Configurar Campos MH",
+          onAction: () => {
+            fetcher.submit({ intent: "setup-metafields" }, { method: "POST" });
           },
         },
       ]}

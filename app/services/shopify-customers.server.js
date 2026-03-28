@@ -290,6 +290,83 @@ export async function getProductMetafields(graphql, productId) {
 }
 
 /**
+ * Create metafield definitions for customer MH catalog fields.
+ * These definitions make the fields visible in the Shopify Admin UI.
+ */
+const CREATE_METAFIELD_DEFINITION = `#graphql
+  mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
+    metafieldDefinitionCreate(definition: $definition) {
+      createdDefinition {
+        id
+        namespace
+        key
+        name
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const CUSTOMER_METAFIELD_DEFINITIONS = [
+  { namespace: "custom", key: "customer_dui", name: "DUI / NIT", type: "single_line_text_field", description: "Documento Único de Identidad o NIT del cliente" },
+  { namespace: "custom", key: "tipo_documento_id", name: "Tipo de Documento", type: "number_integer", description: "ID del catálogo MH de tipo de documento (DUI=2, NIT=3, etc.)" },
+  { namespace: "custom", key: "tipo_persona_id", name: "Tipo de Persona", type: "number_integer", description: "ID del catálogo MH de tipo de persona (Natural=1, Jurídica=2)" },
+  { namespace: "custom", key: "customer_type_id", name: "Tipo de Cliente", type: "number_integer", description: "ID del tipo de cliente en el ERP" },
+  { namespace: "custom", key: "actividad_economica_id", name: "Actividad Económica", type: "number_integer", description: "ID del catálogo MH de actividad económica" },
+  { namespace: "custom", key: "taxpayer_type_id", name: "Tipo de Contribuyente", type: "number_integer", description: "ID del tipo de contribuyente (Grande, Mediano, Otro)" },
+  { namespace: "custom", key: "is_taxpayer", name: "Es Contribuyente", type: "boolean", description: "Indica si el cliente es contribuyente" },
+  { namespace: "custom", key: "is_foreigner", name: "Es Extranjero", type: "boolean", description: "Indica si el cliente es extranjero" },
+  { namespace: "custom", key: "company_nrc", name: "NRC", type: "single_line_text_field", description: "Número de Registro de Contribuyente" },
+  { namespace: "custom", key: "company_number", name: "Número de Empresa", type: "single_line_text_field", description: "Número de registro de empresa" },
+  { namespace: "custom", key: "departamento_id", name: "Departamento", type: "number_integer", description: "ID del catálogo MH de departamento" },
+  { namespace: "custom", key: "municipio_id", name: "Municipio", type: "number_integer", description: "ID del catálogo MH de municipio" },
+  { namespace: "custom", key: "distrito_id", name: "Distrito", type: "number_integer", description: "ID del catálogo MH de distrito" },
+];
+
+export async function createCustomerMetafieldDefinitions(graphql) {
+  const results = { created: 0, skipped: 0, errors: [] };
+
+  for (const def of CUSTOMER_METAFIELD_DEFINITIONS) {
+    try {
+      const response = await graphql(CREATE_METAFIELD_DEFINITION, {
+        variables: {
+          definition: {
+            name: def.name,
+            namespace: def.namespace,
+            key: def.key,
+            type: def.type,
+            description: def.description,
+            ownerType: "CUSTOMER",
+            pin: true,
+          },
+        },
+      });
+
+      const data = await response.json();
+      const userErrors = data.data.metafieldDefinitionCreate.userErrors;
+
+      if (userErrors && userErrors.length > 0) {
+        const alreadyExists = userErrors.some((e) => e.message.includes("already exists") || e.message.includes("taken"));
+        if (alreadyExists) {
+          results.skipped++;
+        } else {
+          results.errors.push(`${def.key}: ${userErrors.map((e) => e.message).join(", ")}`);
+        }
+      } else {
+        results.created++;
+      }
+    } catch (error) {
+      results.errors.push(`${def.key}: ${error.message}`);
+    }
+  }
+
+  return results;
+}
+
+/**
  * Convert ERP custom fields to Shopify metafield format using field mappings
  * @param {object} erpFields - Key-value pairs from ERP
  * @param {Array} fieldMappings - CustomFieldMapping records
