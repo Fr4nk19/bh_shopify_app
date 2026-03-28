@@ -26,6 +26,7 @@ import {
   Pagination,
   EmptyState,
   Checkbox,
+  Select,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "../shopify.server.js";
@@ -39,6 +40,7 @@ import {
   getCustomerSyncStats,
   fullSyncCustomersShopifyToErp,
 } from "../services/customer-sync.server.js";
+import { getErpCatalogs } from "../services/erp.server.js";
 
 const PAGE_SIZE = 20;
 
@@ -63,7 +65,7 @@ export const loader = async ({ request }) => {
       : {}),
   };
 
-  const [total, mappings, stats, customFieldMappings] = await Promise.all([
+  const [total, mappings, stats, customFieldMappings, catalogs] = await Promise.all([
     db.customerMapping.count({ where }),
     db.customerMapping.findMany({
       where,
@@ -76,6 +78,7 @@ export const loader = async ({ request }) => {
       where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
       orderBy: { shopifyField: "asc" },
     }),
+    getErpCatalogs(shop).catch(() => null),
   ]);
 
   // Fetch Shopify metafields for each customer on this page and extract custom field values
@@ -106,6 +109,7 @@ export const loader = async ({ request }) => {
     shop,
     customFieldMappings,
     customFieldValues,
+    catalogs,
   });
 };
 
@@ -188,12 +192,47 @@ export const action = async ({ request }) => {
 
     if (!id) return json({ error: "ID requerido" }, { status: 400 });
 
+    const mapping = await db.customerMapping.findUnique({ where: { id } });
+    if (!mapping) return json({ error: "Mapeo no encontrado" }, { status: 404 });
+
     await db.customerMapping.update({
       where: { id },
       data: { erpCustomerCode, syncEnabled },
     });
 
-    return json({ success: "Mapeo actualizado" });
+    // Save catalog values as Shopify metafields on the customer
+    const catalogFields = {
+      customer_dui: erpCustomerCode,
+      tipo_documento_id: formData.get("tipoDocumentoId"),
+      tipo_persona_id: formData.get("tipoPersonaId"),
+      customer_type_id: formData.get("customerTypeId"),
+      actividad_economica_id: formData.get("actividadEconomicaId"),
+      taxpayer_type_id: formData.get("taxpayerTypeId"),
+      departamento_id: formData.get("departamentoId"),
+      municipio_id: formData.get("municipioId"),
+      distrito_id: formData.get("distritoId"),
+    };
+
+    const metafields = Object.entries(catalogFields)
+      .filter(([, v]) => v)
+      .map(([key, value]) => ({
+        namespace: "custom",
+        key,
+        value: String(value),
+        type: "single_line_text_field",
+      }));
+
+    if (metafields.length > 0) {
+      try {
+        const { setMetafields } = await import("../services/shopify-customers.server.js");
+        await setMetafields(admin.graphql, mapping.shopifyCustomerId, metafields);
+      } catch (err) {
+        console.error("[UpdateMapping] Failed to save metafields:", err.message);
+        return json({ success: "Mapeo actualizado, pero error al guardar metafields: " + err.message });
+      }
+    }
+
+    return json({ success: "Mapeo y catálogos actualizados" });
   }
 
   if (intent === "delete-mapping") {
@@ -216,7 +255,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Customers() {
-  const { mappings, total, page, pageSize, stats, customFieldMappings, customFieldValues } = useLoaderData();
+  const { mappings, total, page, pageSize, stats, customFieldMappings, customFieldValues, catalogs } = useLoaderData();
   const actionData = useActionData();
   const fetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -224,28 +263,63 @@ export default function Customers() {
   const [editModal, setEditModal] = useState(null);
   const [editCode, setEditCode] = useState("");
   const [editSync, setEditSync] = useState(true);
+  const [editCatalog, setEditCatalog] = useState({});
 
   const totalPages = Math.ceil(total / pageSize);
   const isImporting = fetcher.state !== "idle";
+
+  // Build select options from catalogs
+  const toOptions = (items, labelKey = "name") =>
+    [{ label: "— Seleccionar —", value: "" }].concat(
+      (items || []).map((i) => ({ label: `${i[labelKey]}`, value: String(i.id) }))
+    );
+
+  const departamentoOpts = toOptions(catalogs?.departamentos);
+  const tipoDocumentoOpts = toOptions(catalogs?.tiposDocumento);
+  const tipoPersonaOpts = toOptions(catalogs?.tiposPersona);
+  const tipoClienteOpts = toOptions(catalogs?.tiposCliente);
+  const actividadOpts = toOptions(catalogs?.actividadesEconomicas);
+  const tipoContribuyenteOpts = toOptions(catalogs?.tiposContribuyente);
+
+  // Filtered municipios/distritos based on selection
+  const municipioOpts = toOptions(
+    (catalogs?.municipios || []).filter(
+      (m) => !editCatalog.departamentoId || m.departamentoId === Number(editCatalog.departamentoId)
+    )
+  );
+  const distritoOpts = toOptions(
+    (catalogs?.distritos || []).filter(
+      (d) => !editCatalog.municipioId || d.municipioId === Number(editCatalog.municipioId)
+    )
+  );
 
   const openEdit = (mapping) => {
     setEditModal(mapping);
     setEditCode(mapping.erpCustomerCode || "");
     setEditSync(mapping.syncEnabled);
+    setEditCatalog({});
   };
 
   const closeEdit = () => setEditModal(null);
 
   const saveEdit = () => {
-    fetcher.submit(
-      {
-        intent: "update-mapping",
-        id: editModal.id,
-        erpCustomerCode: editCode,
-        syncEnabled: String(editSync),
-      },
-      { method: "POST" }
-    );
+    const data = {
+      intent: "update-mapping",
+      id: editModal.id,
+      erpCustomerCode: editCode,
+      syncEnabled: String(editSync),
+    };
+    // Include catalog selections if any were made
+    if (editCatalog.tipoDocumentoId) data.tipoDocumentoId = editCatalog.tipoDocumentoId;
+    if (editCatalog.tipoPersonaId) data.tipoPersonaId = editCatalog.tipoPersonaId;
+    if (editCatalog.customerTypeId) data.customerTypeId = editCatalog.customerTypeId;
+    if (editCatalog.actividadEconomicaId) data.actividadEconomicaId = editCatalog.actividadEconomicaId;
+    if (editCatalog.taxpayerTypeId) data.taxpayerTypeId = editCatalog.taxpayerTypeId;
+    if (editCatalog.departamentoId) data.departamentoId = editCatalog.departamentoId;
+    if (editCatalog.municipioId) data.municipioId = editCatalog.municipioId;
+    if (editCatalog.distritoId) data.distritoId = editCatalog.distritoId;
+
+    fetcher.submit(data, { method: "POST" });
     closeEdit();
   };
 
@@ -474,11 +548,11 @@ export default function Customers() {
                 <strong>Shopify ID:</strong> {editModal.shopifyCustomerId?.split("/").pop()}
               </Text>
               <TextField
-                label="Código del ERP"
+                label="Código del ERP (DUI/NIT)"
                 value={editCode}
                 onChange={setEditCode}
                 autoComplete="off"
-                helpText="Ingresa el código de cliente exacto tal como aparece en tu ERP"
+                helpText="Código de cliente tal como aparece en tu ERP (ej: 12345678-9)"
               />
               <Checkbox
                 label="Sincronización activa"
@@ -486,6 +560,61 @@ export default function Customers() {
                 onChange={setEditSync}
                 helpText="Activa para incluir este cliente en la sincronización automática"
               />
+              {catalogs && (
+                <>
+                  <Text variant="headingMd" as="h3">Catálogos MH</Text>
+                  <Select
+                    label="Tipo de Documento"
+                    options={tipoDocumentoOpts}
+                    value={editCatalog.tipoDocumentoId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, tipoDocumentoId: v })}
+                  />
+                  <Select
+                    label="Tipo de Persona"
+                    options={tipoPersonaOpts}
+                    value={editCatalog.tipoPersonaId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, tipoPersonaId: v })}
+                  />
+                  <Select
+                    label="Tipo de Cliente"
+                    options={tipoClienteOpts}
+                    value={editCatalog.customerTypeId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, customerTypeId: v })}
+                  />
+                  <Select
+                    label="Actividad Económica"
+                    options={actividadOpts}
+                    value={editCatalog.actividadEconomicaId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, actividadEconomicaId: v })}
+                  />
+                  <Select
+                    label="Tipo de Contribuyente"
+                    options={tipoContribuyenteOpts}
+                    value={editCatalog.taxpayerTypeId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, taxpayerTypeId: v })}
+                  />
+                  <Select
+                    label="Departamento"
+                    options={departamentoOpts}
+                    value={editCatalog.departamentoId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, departamentoId: v, municipioId: "", distritoId: "" })}
+                  />
+                  <Select
+                    label="Municipio"
+                    options={municipioOpts}
+                    value={editCatalog.municipioId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, municipioId: v, distritoId: "" })}
+                    disabled={!editCatalog.departamentoId}
+                  />
+                  <Select
+                    label="Distrito"
+                    options={distritoOpts}
+                    value={editCatalog.distritoId || ""}
+                    onChange={(v) => setEditCatalog({ ...editCatalog, distritoId: v })}
+                    disabled={!editCatalog.municipioId}
+                  />
+                </>
+              )}
             </BlockStack>
           </Modal.Section>
         </Modal>
