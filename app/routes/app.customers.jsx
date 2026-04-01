@@ -205,11 +205,16 @@ export const action = async ({ request }) => {
       "tipoDocumentoId", "tipoPersonaId", "customerTypeId",
       "actividadEconomicaId", "taxpayerTypeId",
       "departamentoId", "municipioId", "distritoId",
+      "companyNrc", "companyNumber",
     ];
     for (const key of catalogKeys) {
       const val = formData.get(key);
       if (val !== null) catalogData[key] = val || null;
     }
+    const isTaxpayerVal = formData.get("isTaxpayer");
+    if (isTaxpayerVal !== null) catalogData.isTaxpayer = isTaxpayerVal === "true";
+    const isForeignerVal = formData.get("isForeigner");
+    if (isForeignerVal !== null) catalogData.isForeigner = isForeignerVal === "true";
 
     await db.customerMapping.update({
       where: { id },
@@ -243,6 +248,11 @@ export const action = async ({ request }) => {
         if (catalogData.actividadEconomicaId) erpPayload.actividadEconomicaId = parseInt(catalogData.actividadEconomicaId, 10);
         if (catalogData.taxpayerTypeId) erpPayload.taxpayerTypeId = parseInt(catalogData.taxpayerTypeId, 10);
         if (catalogData.distritoId) erpPayload.distritoId = parseInt(catalogData.distritoId, 10);
+        if (catalogData.municipioId) erpPayload.municipioId = parseInt(catalogData.municipioId, 10);
+        if (catalogData.companyNrc) erpPayload.nrc = catalogData.companyNrc;
+        if (catalogData.companyNumber) erpPayload.companyNumber = catalogData.companyNumber;
+        if (catalogData.isTaxpayer != null) erpPayload.isTaxpayer = catalogData.isTaxpayer;
+        if (catalogData.isForeigner != null) erpPayload.isForeigner = catalogData.isForeigner;
 
         await upsertErpCustomer(shop, erpCustomerCode, erpPayload);
       } catch (err) {
@@ -338,6 +348,10 @@ export default function Customers() {
       departamentoId: mapping.departamentoId || "",
       municipioId: mapping.municipioId || "",
       distritoId: mapping.distritoId || "",
+      companyNrc: mapping.companyNrc || "",
+      companyNumber: mapping.companyNumber || "",
+      isTaxpayer: mapping.isTaxpayer || false,
+      isForeigner: mapping.isForeigner || false,
     });
   };
 
@@ -358,6 +372,10 @@ export default function Customers() {
       departamentoId: editCatalog.departamentoId || "",
       municipioId: editCatalog.municipioId || "",
       distritoId: editCatalog.distritoId || "",
+      companyNrc: editCatalog.companyNrc || "",
+      companyNumber: editCatalog.companyNumber || "",
+      isTaxpayer: String(editCatalog.isTaxpayer || false),
+      isForeigner: String(editCatalog.isForeigner || false),
     };
 
     fetcher.submit(data, { method: "POST" });
@@ -606,6 +624,28 @@ export default function Customers() {
                 checked={editSync}
                 onChange={setEditSync}
                 helpText="Activa para incluir este cliente en la sincronización automática"
+              />
+              <Checkbox
+                label="Es Contribuyente"
+                checked={editCatalog.isTaxpayer || false}
+                onChange={(v) => setEditCatalog({ ...editCatalog, isTaxpayer: v })}
+              />
+              <Checkbox
+                label="Es Extranjero"
+                checked={editCatalog.isForeigner || false}
+                onChange={(v) => setEditCatalog({ ...editCatalog, isForeigner: v })}
+              />
+              <TextField
+                label="NRC (Número de Registro de Contribuyente)"
+                value={editCatalog.companyNrc || ""}
+                onChange={(v) => setEditCatalog({ ...editCatalog, companyNrc: v })}
+                autoComplete="off"
+              />
+              <TextField
+                label="Número de Empresa"
+                value={editCatalog.companyNumber || ""}
+                onChange={(v) => setEditCatalog({ ...editCatalog, companyNumber: v })}
+                autoComplete="off"
               />
               {catalogs && (
                 <>

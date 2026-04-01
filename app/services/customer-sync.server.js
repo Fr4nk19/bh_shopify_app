@@ -94,28 +94,11 @@ export async function syncCustomerShopifyToErp({
     if (mapping.departamentoId) erpPayload.departamentoId = parseInt(mapping.departamentoId, 10);
     if (mapping.municipioId) erpPayload.municipioId = parseInt(mapping.municipioId, 10);
     if (mapping.distritoId) erpPayload.distritoId = parseInt(mapping.distritoId, 10);
-
-    // Extract additional fields from metafields (text/boolean fields that are still stored as metafields)
-    if (customerData.metafields && Array.isArray(customerData.metafields)) {
-      const mf = (ns, key) => {
-        const found = customerData.metafields.find(
-          (m) => m.namespace === ns && m.key === key
-        );
-        return found?.value ?? null;
-      };
-
-      const isTaxpayer = mf("custom", "is_taxpayer");
-      if (isTaxpayer != null) erpPayload.isTaxpayer = isTaxpayer === "true";
-
-      const nrc = mf("custom", "company_nrc");
-      if (nrc) erpPayload.nrc = nrc;
-
-      const companyNumber = mf("custom", "company_number");
-      if (companyNumber) erpPayload.companyNumber = companyNumber;
-
-      const isForeigner = mf("custom", "is_foreigner");
-      if (isForeigner != null) erpPayload.isForeigner = isForeigner === "true";
-    }
+    if (mapping.municipioId) erpPayload.municipioId = parseInt(mapping.municipioId, 10);
+    if (mapping.companyNrc) erpPayload.nrc = mapping.companyNrc;
+    if (mapping.companyNumber) erpPayload.companyNumber = mapping.companyNumber;
+    if (mapping.isTaxpayer != null) erpPayload.isTaxpayer = mapping.isTaxpayer;
+    if (mapping.isForeigner != null) erpPayload.isForeigner = mapping.isForeigner;
 
     if (!erpCode) {
       console.warn(`[CustomerSync] No DUI found for customer ${mapping.shopifyCustomerId}. Set custom.customer_dui metafield or erpCustomerCode in mapping.`);

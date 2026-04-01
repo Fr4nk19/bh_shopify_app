@@ -66,6 +66,10 @@ model CustomerMapping {
   departamentoId       String?
   municipioId          String?
   distritoId           String?
+  companyNrc           String?
+  companyNumber        String?
+  isTaxpayer           Boolean  @default(false)
+  isForeigner          Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
