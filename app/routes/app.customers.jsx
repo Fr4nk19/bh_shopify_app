@@ -248,7 +248,6 @@ export const action = async ({ request }) => {
         if (catalogData.actividadEconomicaId) erpPayload.actividadEconomicaId = parseInt(catalogData.actividadEconomicaId, 10);
         if (catalogData.taxpayerTypeId) erpPayload.taxpayerTypeId = parseInt(catalogData.taxpayerTypeId, 10);
         if (catalogData.distritoId) erpPayload.distritoId = parseInt(catalogData.distritoId, 10);
-        if (catalogData.municipioId) erpPayload.municipioId = parseInt(catalogData.municipioId, 10);
         if (catalogData.companyNrc) erpPayload.nrc = catalogData.companyNrc;
         if (catalogData.companyNumber) erpPayload.companyNumber = catalogData.companyNumber;
         if (catalogData.isTaxpayer != null) erpPayload.isTaxpayer = catalogData.isTaxpayer;
