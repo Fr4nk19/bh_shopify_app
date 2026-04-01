@@ -41,7 +41,7 @@ import {
   getCustomerSyncStats,
   fullSyncCustomersShopifyToErp,
 } from "../services/customer-sync.server.js";
-import { getErpCatalogs, upsertErpCustomer } from "../services/erp.server.js";
+import { getErpCatalogs } from "../services/erp.server.js";
 
 const PAGE_SIZE = 20;
 
@@ -226,34 +226,11 @@ export const action = async ({ request }) => {
         ]);
       } catch (err) {
         console.error("[UpdateMapping] Failed to save DUI metafield:", err.message);
+        return json({ success: "Mapeo actualizado, pero error al guardar metafield DUI: " + err.message });
       }
     }
 
-    // Sync catalog fields to ERP immediately
-    if (erpCustomerCode) {
-      try {
-        const erpPayload = {
-          firstName: mapping.firstName,
-          lastName: mapping.lastName,
-          email: mapping.email,
-          phone: mapping.phone,
-        };
-        if (catalogData.tipoDocumentoId) erpPayload.tipoDocumentoId = parseInt(catalogData.tipoDocumentoId, 10);
-        if (catalogData.tipoPersonaId) erpPayload.tipoPersonaId = parseInt(catalogData.tipoPersonaId, 10);
-        if (catalogData.customerTypeId) erpPayload.customerTypeId = parseInt(catalogData.customerTypeId, 10);
-        if (catalogData.actividadEconomicaId) erpPayload.actividadEconomicaId = parseInt(catalogData.actividadEconomicaId, 10);
-        if (catalogData.taxpayerTypeId) erpPayload.taxpayerTypeId = parseInt(catalogData.taxpayerTypeId, 10);
-        if (catalogData.distritoId) erpPayload.distritoId = parseInt(catalogData.distritoId, 10);
-        if (catalogData.companyNrc) erpPayload.nrc = catalogData.companyNrc;
-
-        await upsertErpCustomer(shop, erpCustomerCode, erpPayload);
-      } catch (err) {
-        console.error("[UpdateMapping] Failed to sync to ERP:", err.message);
-        return json({ success: "Mapeo actualizado en app, pero error al sincronizar con ERP: " + err.message });
-      }
-    }
-
-    return json({ success: "Mapeo y catálogos actualizados y sincronizados con ERP" });
+    return json({ success: "Mapeo y catálogos actualizados" });
   }
 
   if (intent === "delete-mapping") {
