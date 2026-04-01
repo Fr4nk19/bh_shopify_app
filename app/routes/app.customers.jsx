@@ -41,7 +41,7 @@ import {
   getCustomerSyncStats,
   fullSyncCustomersShopifyToErp,
 } from "../services/customer-sync.server.js";
-import { getErpCatalogs } from "../services/erp.server.js";
+import { getErpCatalogs, upsertErpCustomer } from "../services/erp.server.js";
 
 const PAGE_SIZE = 20;
 
@@ -205,7 +205,6 @@ export const action = async ({ request }) => {
       "tipoDocumentoId", "tipoPersonaId", "customerTypeId",
       "actividadEconomicaId", "taxpayerTypeId",
       "departamentoId", "municipioId", "distritoId",
-      "companyNrc",
     ];
     for (const key of catalogKeys) {
       const val = formData.get(key);
@@ -226,11 +225,33 @@ export const action = async ({ request }) => {
         ]);
       } catch (err) {
         console.error("[UpdateMapping] Failed to save DUI metafield:", err.message);
-        return json({ success: "Mapeo actualizado, pero error al guardar metafield DUI: " + err.message });
       }
     }
 
-    return json({ success: "Mapeo y catálogos actualizados" });
+    // Sync catalog fields to ERP immediately
+    if (erpCustomerCode) {
+      try {
+        const erpPayload = {
+          firstName: mapping.firstName,
+          lastName: mapping.lastName,
+          email: mapping.email,
+          phone: mapping.phone,
+        };
+        if (catalogData.tipoDocumentoId) erpPayload.tipoDocumentoId = parseInt(catalogData.tipoDocumentoId, 10);
+        if (catalogData.tipoPersonaId) erpPayload.tipoPersonaId = parseInt(catalogData.tipoPersonaId, 10);
+        if (catalogData.customerTypeId) erpPayload.customerTypeId = parseInt(catalogData.customerTypeId, 10);
+        if (catalogData.actividadEconomicaId) erpPayload.actividadEconomicaId = parseInt(catalogData.actividadEconomicaId, 10);
+        if (catalogData.taxpayerTypeId) erpPayload.taxpayerTypeId = parseInt(catalogData.taxpayerTypeId, 10);
+        if (catalogData.distritoId) erpPayload.distritoId = parseInt(catalogData.distritoId, 10);
+
+        await upsertErpCustomer(shop, erpCustomerCode, erpPayload);
+      } catch (err) {
+        console.error("[UpdateMapping] Failed to sync to ERP:", err.message);
+        return json({ success: "Mapeo actualizado en app, pero error al sincronizar con ERP: " + err.message });
+      }
+    }
+
+    return json({ success: "Mapeo y catálogos actualizados y sincronizados con ERP" });
   }
 
   if (intent === "delete-mapping") {
@@ -317,7 +338,6 @@ export default function Customers() {
       departamentoId: mapping.departamentoId || "",
       municipioId: mapping.municipioId || "",
       distritoId: mapping.distritoId || "",
-      companyNrc: mapping.companyNrc || "",
     });
   };
 
@@ -338,7 +358,6 @@ export default function Customers() {
       departamentoId: editCatalog.departamentoId || "",
       municipioId: editCatalog.municipioId || "",
       distritoId: editCatalog.distritoId || "",
-      companyNrc: editCatalog.companyNrc || "",
     };
 
     fetcher.submit(data, { method: "POST" });
@@ -587,13 +606,6 @@ export default function Customers() {
                 checked={editSync}
                 onChange={setEditSync}
                 helpText="Activa para incluir este cliente en la sincronización automática"
-              />
-              <TextField
-                label="NRC (Número de Registro de Contribuyente)"
-                value={editCatalog.companyNrc || ""}
-                onChange={(v) => setEditCatalog({ ...editCatalog, companyNrc: v })}
-                autoComplete="off"
-                helpText="Ej: 0123-456789-000-0"
               />
               {catalogs && (
                 <>

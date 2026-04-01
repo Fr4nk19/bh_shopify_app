@@ -7,4 +7,3 @@ ALTER TABLE "CustomerMapping" ADD COLUMN "taxpayerTypeId" TEXT;
 ALTER TABLE "CustomerMapping" ADD COLUMN "departamentoId" TEXT;
 ALTER TABLE "CustomerMapping" ADD COLUMN "municipioId" TEXT;
 ALTER TABLE "CustomerMapping" ADD COLUMN "distritoId" TEXT;
-ALTER TABLE "CustomerMapping" ADD COLUMN "companyNrc" TEXT;
