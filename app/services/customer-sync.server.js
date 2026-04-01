@@ -94,7 +94,6 @@ export async function syncCustomerShopifyToErp({
     if (mapping.departamentoId) erpPayload.departamentoId = parseInt(mapping.departamentoId, 10);
     if (mapping.municipioId) erpPayload.municipioId = parseInt(mapping.municipioId, 10);
     if (mapping.distritoId) erpPayload.distritoId = parseInt(mapping.distritoId, 10);
-    if (mapping.municipioId) erpPayload.municipioId = parseInt(mapping.municipioId, 10);
     if (mapping.companyNrc) erpPayload.nrc = mapping.companyNrc;
     if (mapping.companyNumber) erpPayload.companyNumber = mapping.companyNumber;
     if (mapping.isTaxpayer != null) erpPayload.isTaxpayer = mapping.isTaxpayer;
