@@ -94,6 +94,7 @@ export async function syncCustomerShopifyToErp({
     if (mapping.departamentoId) erpPayload.departamentoId = parseInt(mapping.departamentoId, 10);
     if (mapping.municipioId) erpPayload.municipioId = parseInt(mapping.municipioId, 10);
     if (mapping.distritoId) erpPayload.distritoId = parseInt(mapping.distritoId, 10);
+    if (mapping.companyNrc) erpPayload.nrc = mapping.companyNrc;
 
     // Extract additional fields from metafields (text/boolean fields that are still stored as metafields)
     if (customerData.metafields && Array.isArray(customerData.metafields)) {

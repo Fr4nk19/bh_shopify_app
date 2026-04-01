@@ -66,6 +66,7 @@ model CustomerMapping {
   departamentoId       String?
   municipioId          String?
   distritoId           String?
+  companyNrc           String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
