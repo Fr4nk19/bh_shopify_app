@@ -66,24 +66,52 @@ export const loader = async ({ request }) => {
       : {}),
   };
 
-  const [total, mappings, stats, customFieldMappings, catalogs] = await Promise.all([
-    db.customerMapping.count({ where }),
-    db.customerMapping.findMany({
-      where,
-      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    getCustomerSyncStats(shop),
-    db.customFieldMapping.findMany({
-      where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
-      orderBy: { shopifyField: "asc" },
-    }),
-    getErpCatalogs(shop).catch((err) => {
-      console.error("[Loader] Failed to load catalogs:", err.message);
-      return null;
-    }),
-  ]);
+  let total, mappings, stats, customFieldMappings, catalogs;
+  try {
+    [total, mappings, stats, customFieldMappings, catalogs] = await Promise.all([
+      db.customerMapping.count({ where }),
+      db.customerMapping.findMany({
+        where,
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+      }),
+      getCustomerSyncStats(shop),
+      db.customFieldMapping.findMany({
+        where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
+        orderBy: { shopifyField: "asc" },
+      }),
+      getErpCatalogs(shop).catch((err) => {
+        console.error("[Loader] Failed to load catalogs:", err.message);
+        return null;
+      }),
+    ]);
+  } catch (err) {
+    console.warn("[Loader] findMany failed, falling back to base columns:", err.message);
+    [total, mappings, stats, customFieldMappings, catalogs] = await Promise.all([
+      db.customerMapping.count({ where }),
+      db.customerMapping.findMany({
+        where,
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+        select: {
+          id: true, shop: true, shopifyCustomerId: true, erpCustomerCode: true,
+          firstName: true, lastName: true, email: true, phone: true,
+          syncEnabled: true, lastSyncAt: true, createdAt: true, updatedAt: true,
+        },
+      }),
+      getCustomerSyncStats(shop),
+      db.customFieldMapping.findMany({
+        where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
+        orderBy: { shopifyField: "asc" },
+      }),
+      getErpCatalogs(shop).catch((err) => {
+        console.error("[Loader] Failed to load catalogs:", err.message);
+        return null;
+      }),
+    ]);
+  }
 
   // Fetch Shopify metafields for each customer on this page and extract custom field values
   const customFieldValues = {};
@@ -216,10 +244,18 @@ export const action = async ({ request }) => {
     const isForeignerVal = formData.get("isForeigner");
     if (isForeignerVal !== null) catalogData.isForeigner = isForeignerVal === "true";
 
-    await db.customerMapping.update({
-      where: { id },
-      data: { erpCustomerCode, syncEnabled, ...catalogData },
-    });
+    try {
+      await db.customerMapping.update({
+        where: { id },
+        data: { erpCustomerCode, syncEnabled, ...catalogData },
+      });
+    } catch {
+      console.warn("[UpdateMapping] Catalog columns not available, saving basic fields only.");
+      await db.customerMapping.update({
+        where: { id },
+        data: { erpCustomerCode, syncEnabled },
+      });
+    }
 
     // Save DUI as Shopify metafield (text type, no conflict)
     if (erpCustomerCode) {
