@@ -205,6 +205,7 @@ export const action = async ({ request }) => {
       "tipoDocumentoId", "tipoPersonaId", "customerTypeId",
       "actividadEconomicaId", "taxpayerTypeId",
       "departamentoId", "municipioId", "distritoId",
+      "companyNrc",
     ];
     for (const key of catalogKeys) {
       const val = formData.get(key);
@@ -243,6 +244,7 @@ export const action = async ({ request }) => {
         if (catalogData.actividadEconomicaId) erpPayload.actividadEconomicaId = parseInt(catalogData.actividadEconomicaId, 10);
         if (catalogData.taxpayerTypeId) erpPayload.taxpayerTypeId = parseInt(catalogData.taxpayerTypeId, 10);
         if (catalogData.distritoId) erpPayload.distritoId = parseInt(catalogData.distritoId, 10);
+        if (catalogData.companyNrc) erpPayload.nrc = catalogData.companyNrc;
 
         await upsertErpCustomer(shop, erpCustomerCode, erpPayload);
       } catch (err) {
@@ -338,6 +340,7 @@ export default function Customers() {
       departamentoId: mapping.departamentoId || "",
       municipioId: mapping.municipioId || "",
       distritoId: mapping.distritoId || "",
+      companyNrc: mapping.companyNrc || "",
     });
   };
 
@@ -358,6 +361,7 @@ export default function Customers() {
       departamentoId: editCatalog.departamentoId || "",
       municipioId: editCatalog.municipioId || "",
       distritoId: editCatalog.distritoId || "",
+      companyNrc: editCatalog.companyNrc || "",
     };
 
     fetcher.submit(data, { method: "POST" });
@@ -606,6 +610,13 @@ export default function Customers() {
                 checked={editSync}
                 onChange={setEditSync}
                 helpText="Activa para incluir este cliente en la sincronización automática"
+              />
+              <TextField
+                label="NRC (Número de Registro de Contribuyente)"
+                value={editCatalog.companyNrc || ""}
+                onChange={(v) => setEditCatalog({ ...editCatalog, companyNrc: v })}
+                autoComplete="off"
+                helpText="Ej: 0123-456789-000-0"
               />
               {catalogs && (
                 <>
