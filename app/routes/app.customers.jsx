@@ -199,40 +199,33 @@ export const action = async ({ request }) => {
     const mapping = await db.customerMapping.findUnique({ where: { id } });
     if (!mapping) return json({ error: "Mapeo no encontrado" }, { status: 404 });
 
+    // Build catalog data to save in DB
+    const catalogData = {};
+    const catalogKeys = [
+      "tipoDocumentoId", "tipoPersonaId", "customerTypeId",
+      "actividadEconomicaId", "taxpayerTypeId",
+      "departamentoId", "municipioId", "distritoId",
+    ];
+    for (const key of catalogKeys) {
+      const val = formData.get(key);
+      if (val !== null) catalogData[key] = val || null;
+    }
+
     await db.customerMapping.update({
       where: { id },
-      data: { erpCustomerCode, syncEnabled },
+      data: { erpCustomerCode, syncEnabled, ...catalogData },
     });
 
-    // Save catalog values as Shopify metafields on the customer
-    const catalogFields = {
-      customer_dui: erpCustomerCode,
-      tipo_documento_id: formData.get("tipoDocumentoId"),
-      tipo_persona_id: formData.get("tipoPersonaId"),
-      customer_type_id: formData.get("customerTypeId"),
-      actividad_economica_id: formData.get("actividadEconomicaId"),
-      taxpayer_type_id: formData.get("taxpayerTypeId"),
-      departamento_id: formData.get("departamentoId"),
-      municipio_id: formData.get("municipioId"),
-      distrito_id: formData.get("distritoId"),
-    };
-
-    const metafields = Object.entries(catalogFields)
-      .filter(([, v]) => v)
-      .map(([key, value]) => ({
-        namespace: "custom",
-        key,
-        value: String(value),
-        type: "single_line_text_field",
-      }));
-
-    if (metafields.length > 0) {
+    // Save only text-type metafields (DUI) to Shopify to avoid type conflicts
+    if (erpCustomerCode) {
       try {
         const { setMetafields } = await import("../services/shopify-customers.server.js");
-        await setMetafields(admin.graphql, mapping.shopifyCustomerId, metafields);
+        await setMetafields(admin.graphql, mapping.shopifyCustomerId, [
+          { namespace: "custom", key: "customer_dui", value: String(erpCustomerCode), type: "single_line_text_field" },
+        ]);
       } catch (err) {
-        console.error("[UpdateMapping] Failed to save metafields:", err.message);
-        return json({ success: "Mapeo actualizado, pero error al guardar metafields: " + err.message });
+        console.error("[UpdateMapping] Failed to save DUI metafield:", err.message);
+        return json({ success: "Mapeo actualizado, pero error al guardar metafield DUI: " + err.message });
       }
     }
 
@@ -314,7 +307,16 @@ export default function Customers() {
     setEditModal(mapping);
     setEditCode(mapping.erpCustomerCode || "");
     setEditSync(mapping.syncEnabled);
-    setEditCatalog({});
+    setEditCatalog({
+      tipoDocumentoId: mapping.tipoDocumentoId || "",
+      tipoPersonaId: mapping.tipoPersonaId || "",
+      customerTypeId: mapping.customerTypeId || "",
+      actividadEconomicaId: mapping.actividadEconomicaId || "",
+      taxpayerTypeId: mapping.taxpayerTypeId || "",
+      departamentoId: mapping.departamentoId || "",
+      municipioId: mapping.municipioId || "",
+      distritoId: mapping.distritoId || "",
+    });
   };
 
   const closeEdit = () => setEditModal(null);
@@ -325,16 +327,16 @@ export default function Customers() {
       id: editModal.id,
       erpCustomerCode: editCode,
       syncEnabled: String(editSync),
+      // Always send catalog fields so they can be saved/cleared in DB
+      tipoDocumentoId: editCatalog.tipoDocumentoId || "",
+      tipoPersonaId: editCatalog.tipoPersonaId || "",
+      customerTypeId: editCatalog.customerTypeId || "",
+      actividadEconomicaId: editCatalog.actividadEconomicaId || "",
+      taxpayerTypeId: editCatalog.taxpayerTypeId || "",
+      departamentoId: editCatalog.departamentoId || "",
+      municipioId: editCatalog.municipioId || "",
+      distritoId: editCatalog.distritoId || "",
     };
-    // Include catalog selections if any were made
-    if (editCatalog.tipoDocumentoId) data.tipoDocumentoId = editCatalog.tipoDocumentoId;
-    if (editCatalog.tipoPersonaId) data.tipoPersonaId = editCatalog.tipoPersonaId;
-    if (editCatalog.customerTypeId) data.customerTypeId = editCatalog.customerTypeId;
-    if (editCatalog.actividadEconomicaId) data.actividadEconomicaId = editCatalog.actividadEconomicaId;
-    if (editCatalog.taxpayerTypeId) data.taxpayerTypeId = editCatalog.taxpayerTypeId;
-    if (editCatalog.departamentoId) data.departamentoId = editCatalog.departamentoId;
-    if (editCatalog.municipioId) data.municipioId = editCatalog.municipioId;
-    if (editCatalog.distritoId) data.distritoId = editCatalog.distritoId;
 
     fetcher.submit(data, { method: "POST" });
     closeEdit();
