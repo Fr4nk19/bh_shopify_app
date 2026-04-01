@@ -80,7 +80,22 @@ export async function syncCustomerShopifyToErp({
       console.log(`[CustomerSync] Metafields:`, customerData.metafields.map(m => `${m.namespace}.${m.key}=${m.value}`).join(', '));
     }
 
-    // Extract ERP-specific fields from metafields (if available)
+    // Read catalog values from the DB mapping (stored in CustomerMapping table)
+    if (mapping.erpCustomerCode) {
+      erpCode = mapping.erpCustomerCode;
+      erpPayload.code = mapping.erpCustomerCode;
+    }
+
+    if (mapping.tipoDocumentoId) erpPayload.tipoDocumentoId = parseInt(mapping.tipoDocumentoId, 10);
+    if (mapping.tipoPersonaId) erpPayload.tipoPersonaId = parseInt(mapping.tipoPersonaId, 10);
+    if (mapping.customerTypeId) erpPayload.customerTypeId = parseInt(mapping.customerTypeId, 10);
+    if (mapping.actividadEconomicaId) erpPayload.actividadEconomicaId = parseInt(mapping.actividadEconomicaId, 10);
+    if (mapping.taxpayerTypeId) erpPayload.taxpayerTypeId = parseInt(mapping.taxpayerTypeId, 10);
+    if (mapping.departamentoId) erpPayload.departamentoId = parseInt(mapping.departamentoId, 10);
+    if (mapping.municipioId) erpPayload.municipioId = parseInt(mapping.municipioId, 10);
+    if (mapping.distritoId) erpPayload.distritoId = parseInt(mapping.distritoId, 10);
+
+    // Extract additional fields from metafields (text/boolean fields that are still stored as metafields)
     if (customerData.metafields && Array.isArray(customerData.metafields)) {
       const mf = (ns, key) => {
         const found = customerData.metafields.find(
@@ -88,18 +103,6 @@ export async function syncCustomerShopifyToErp({
         );
         return found?.value ?? null;
       };
-
-      const customerDui = mf("custom", "customer_dui");
-      if (customerDui) {
-        erpCode = customerDui;
-        erpPayload.code = customerDui;
-      }
-
-      const tipoDocId = mf("custom", "tipo_documento_id");
-      if (tipoDocId) erpPayload.tipoDocumentoId = parseInt(tipoDocId, 10);
-
-      const tipoPersonaId = mf("custom", "tipo_persona_id");
-      if (tipoPersonaId) erpPayload.tipoPersonaId = parseInt(tipoPersonaId, 10);
 
       const isTaxpayer = mf("custom", "is_taxpayer");
       if (isTaxpayer != null) erpPayload.isTaxpayer = isTaxpayer === "true";
