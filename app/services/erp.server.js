@@ -9,9 +9,13 @@
  *   PUT    /api/shopify/inventory/{sku}?companyId=&branchId= → update inventory for a SKU
  *   GET    /api/shopify/products?companyId=             → list all products
  *   GET    /api/shopify/products/{sku}?companyId=       → get product by SKU
+ *   GET    /api/shopify/products/{sku}/customfields     → get product custom fields
+ *   PUT    /api/shopify/products/{sku}/customfields     → update product custom fields
  *   GET    /api/shopify/customers?companyId=            → list all customers
  *   GET    /api/shopify/customers/{code}?companyId=     → get customer by code
  *   PUT    /api/shopify/customers/{code}?companyId=     → upsert customer
+ *   GET    /api/shopify/customers/{code}/customfields   → get customer custom fields
+ *   PUT    /api/shopify/customers/{code}/customfields   → update customer custom fields
  *
  * Authentication: X-Api-Key header (configurable per shop)
  */
@@ -337,38 +341,91 @@ export async function getErpCatalogs(shop) {
   }
 }
 
-// ─── Custom Fields (not yet implemented in backend, kept as stubs) ──────────
+// ─── Custom Fields (metafield sync) ─────────────────────────────────────────
 
 /**
  * Get custom fields for a product from the ERP
+ * GET /api/shopify/products/{sku}/customfields
+ * @returns {object} Key-value pairs of ERP field names to values
  */
 export async function getErpProductCustomFields(shop, sku) {
-  // TODO: Implement when backend adds /api/shopify/products/{sku}/customfields
-  return {};
+  const { client, settings } = await getErpClient(shop);
+
+  try {
+    const response = await client.get(
+      `/api/shopify/products/${encodeURIComponent(sku)}/customfields`,
+      { params: companyParams(settings) }
+    );
+    return response.data?.fields || response.data || {};
+  } catch (error) {
+    // Return empty on 404 (product not found in ERP) to avoid breaking sync
+    if (error.response?.status === 404) return {};
+    throw buildErpError("getErpProductCustomFields", sku, error);
+  }
 }
 
 /**
  * Update custom fields for a product in the ERP
+ * PUT /api/shopify/products/{sku}/customfields
+ * @param {object} fields - Key-value pairs of ERP field names to new values
+ * @returns {object} Updated fields
  */
 export async function updateErpProductCustomFields(shop, sku, fields) {
-  // TODO: Implement when backend adds /api/shopify/products/{sku}/customfields
-  return {};
+  const { client, settings } = await getErpClient(shop);
+
+  try {
+    const response = await client.put(
+      `/api/shopify/products/${encodeURIComponent(sku)}/customfields`,
+      { fields },
+      { params: companyParams(settings) }
+    );
+    return response.data?.fields || response.data || {};
+  } catch (error) {
+    if (error.response?.status === 404) return {};
+    throw buildErpError("updateErpProductCustomFields", sku, error);
+  }
 }
 
 /**
  * Get custom fields for a customer from the ERP
+ * GET /api/shopify/customers/{code}/customfields
+ * @returns {object} Key-value pairs of ERP field names to values
  */
 export async function getErpCustomerCustomFields(shop, code) {
-  // TODO: Implement when backend adds /api/shopify/customers/{code}/customfields
-  return {};
+  const { client, settings } = await getErpClient(shop);
+
+  try {
+    const response = await client.get(
+      `/api/shopify/customers/${encodeURIComponent(code)}/customfields`,
+      { params: companyParams(settings) }
+    );
+    return response.data?.fields || response.data || {};
+  } catch (error) {
+    if (error.response?.status === 404) return {};
+    throw buildErpError("getErpCustomerCustomFields", code, error);
+  }
 }
 
 /**
  * Update custom fields for a customer in the ERP
+ * PUT /api/shopify/customers/{code}/customfields
+ * @param {object} fields - Key-value pairs of ERP field names to new values
+ * @returns {object} Updated fields
  */
 export async function updateErpCustomerCustomFields(shop, code, fields) {
-  // TODO: Implement when backend adds /api/shopify/customers/{code}/customfields
-  return {};
+  const { client, settings } = await getErpClient(shop);
+
+  try {
+    const response = await client.put(
+      `/api/shopify/customers/${encodeURIComponent(code)}/customfields`,
+      { fields },
+      { params: companyParams(settings) }
+    );
+    return response.data?.fields || response.data || {};
+  } catch (error) {
+    if (error.response?.status === 404) return {};
+    throw buildErpError("updateErpCustomerCustomFields", code, error);
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
