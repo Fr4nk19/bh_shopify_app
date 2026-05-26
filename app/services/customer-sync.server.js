@@ -1,27 +1,15 @@
 /**
  * Customer Sync Service
- * Handles bidirectional customer sync between Shopify and ERP,
- * including custom fields (metafields)
+ * Handles bidirectional customer sync between Shopify and ERP
  */
 
 import { db } from "../db.server.js";
 import {
-  getAllErpCustomers,
-  getErpCustomer,
   upsertErpCustomer,
-  getErpCustomerCustomFields,
-  updateErpCustomerCustomFields,
-  getErpProductCustomFields,
-  updateErpProductCustomFields,
 } from "./erp.server.js";
 import {
   getCustomer,
-  getAllCustomers,
   updateShopifyCustomer,
-  setMetafields,
-  getProductMetafields,
-  erpFieldsToShopifyMetafields,
-  shopifyMetafieldsToErpFields,
 } from "./shopify-customers.server.js";
 
 // ─── Shopify → ERP (Customer) ───────────────────────────────────────────────
@@ -74,11 +62,6 @@ export async function syncCustomerShopifyToErp({
       postalCode: addr?.zip || null,
       companyName: addr?.company || null,
     };
-
-    console.log(`[CustomerSync] Shopify customer=${mapping.shopifyCustomerId}, mapping.erpCustomerCode=${mapping.erpCustomerCode}, metafields count=${customerData.metafields?.length ?? 0}`);
-    if (customerData.metafields?.length) {
-      console.log(`[CustomerSync] Metafields:`, customerData.metafields.map(m => `${m.namespace}.${m.key}=${m.value}`).join(', '));
-    }
 
     // Read catalog values from the DB mapping (stored in CustomerMapping table)
     if (mapping.erpCustomerCode) {
@@ -188,14 +171,6 @@ export async function syncCustomerErpToShopify({
         await updateShopifyCustomer(graphql, mapping.shopifyCustomerId, updateData);
       }
 
-      // Sync custom fields (ERP custom fields → metafields)
-      await syncCustomerCustomFieldsToShopify({
-        shop,
-        shopifyCustomerId: mapping.shopifyCustomerId,
-        erpCode: erpCustomerCode,
-        graphql,
-      });
-
       // Update mapping
       await db.customerMapping.update({
         where: { id: mapping.id },
@@ -262,9 +237,6 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
         continue;
       }
 
-      console.log(`[FullSync] Processing ${mapping.shopifyCustomerId}, metafields:`,
-        (customer.metafields || []).map(m => `${m.namespace}.${m.key}=${m.value}`));
-
       // Use syncCustomerShopifyToErp, passing the mapping to avoid redundant DB lookup
       const result = await syncCustomerShopifyToErp({
         shop,
@@ -275,7 +247,6 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
           email: customer.email,
           phone: customer.phone,
           defaultAddress: customer.defaultAddress,
-          metafields: customer.metafields,
         },
         existingMapping: mapping,
         source,
@@ -296,120 +267,6 @@ export async function fullSyncCustomersShopifyToErp({ shop, graphql, source = "m
   }
 
   return results;
-}
-
-// ─── Custom Field Sync ──────────────────────────────────────────────────────
-
-/**
- * Sync customer metafields from Shopify to ERP custom fields
- */
-async function syncCustomerCustomFieldsToErp({ shop, shopifyCustomerId, erpCode, graphql }) {
-  if (!graphql) return; // Can't read metafields without graphql client
-
-  const fieldMappings = await db.customFieldMapping.findMany({
-    where: {
-      shop,
-      resourceType: "CUSTOMER",
-      syncDirection: "SHOPIFY_TO_ERP",
-      syncEnabled: true,
-    },
-  });
-
-  if (fieldMappings.length === 0) return;
-
-  try {
-    const customer = await getCustomer(graphql, shopifyCustomerId);
-    if (!customer) return;
-
-    const erpFields = shopifyMetafieldsToErpFields(customer.metafields, fieldMappings);
-
-    if (Object.keys(erpFields).length > 0) {
-      await updateErpCustomerCustomFields(shop, erpCode, erpFields);
-    }
-  } catch (error) {
-    console.error(`[CustomerSync] Failed to sync custom fields to ERP for ${erpCode}:`, error.message);
-  }
-}
-
-/**
- * Sync customer custom fields from ERP to Shopify metafields
- */
-async function syncCustomerCustomFieldsToShopify({ shop, shopifyCustomerId, erpCode, graphql }) {
-  const fieldMappings = await db.customFieldMapping.findMany({
-    where: {
-      shop,
-      resourceType: "CUSTOMER",
-      syncDirection: "ERP_TO_SHOPIFY",
-      syncEnabled: true,
-    },
-  });
-
-  if (fieldMappings.length === 0) return;
-
-  try {
-    const erpFields = await getErpCustomerCustomFields(shop, erpCode);
-    const metafields = erpFieldsToShopifyMetafields(erpFields, fieldMappings);
-
-    if (metafields.length > 0) {
-      await setMetafields(graphql, shopifyCustomerId, metafields);
-    }
-  } catch (error) {
-    console.error(`[CustomerSync] Failed to sync custom fields to Shopify for ${shopifyCustomerId}:`, error.message);
-  }
-}
-
-/**
- * Sync product metafields from ERP to Shopify
- */
-export async function syncProductCustomFieldsErpToShopify({ shop, shopifyProductId, erpSku, graphql }) {
-  const fieldMappings = await db.customFieldMapping.findMany({
-    where: {
-      shop,
-      resourceType: "PRODUCT",
-      syncDirection: "ERP_TO_SHOPIFY",
-      syncEnabled: true,
-    },
-  });
-
-  if (fieldMappings.length === 0) return;
-
-  try {
-    const erpFields = await getErpProductCustomFields(shop, erpSku);
-    const metafields = erpFieldsToShopifyMetafields(erpFields, fieldMappings);
-
-    if (metafields.length > 0) {
-      await setMetafields(graphql, shopifyProductId, metafields);
-    }
-  } catch (error) {
-    console.error(`[CustomerSync] Failed to sync product custom fields to Shopify for ${erpSku}:`, error.message);
-  }
-}
-
-/**
- * Sync product metafields from Shopify to ERP
- */
-export async function syncProductCustomFieldsShopifyToErp({ shop, shopifyProductId, erpSku, graphql }) {
-  const fieldMappings = await db.customFieldMapping.findMany({
-    where: {
-      shop,
-      resourceType: "PRODUCT",
-      syncDirection: "SHOPIFY_TO_ERP",
-      syncEnabled: true,
-    },
-  });
-
-  if (fieldMappings.length === 0) return;
-
-  try {
-    const metafields = await getProductMetafields(graphql, shopifyProductId);
-    const erpFields = shopifyMetafieldsToErpFields(metafields, fieldMappings);
-
-    if (Object.keys(erpFields).length > 0) {
-      await updateErpProductCustomFields(shop, erpSku, erpFields);
-    }
-  } catch (error) {
-    console.error(`[CustomerSync] Failed to sync product custom fields to ERP for ${erpSku}:`, error.message);
-  }
 }
 
 // ─── Stats ──────────────────────────────────────────────────────────────────

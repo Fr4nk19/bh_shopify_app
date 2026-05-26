@@ -35,10 +35,6 @@ import {
   getAllProductsWithInventory,
   getShopLocations,
 } from "../services/shopify-inventory.server.js";
-import {
-  getProductMetafields,
-  shopifyMetafieldsToErpFields,
-} from "../services/shopify-customers.server.js";
 
 const PAGE_SIZE = 20;
 
@@ -62,7 +58,7 @@ export const loader = async ({ request }) => {
       : {}),
   };
 
-  const [total, mappings, locations, customFieldMappings] = await Promise.all([
+  const [total, mappings, locations] = await Promise.all([
     db.productMapping.count({ where }),
     db.productMapping.findMany({
       where,
@@ -71,33 +67,7 @@ export const loader = async ({ request }) => {
       take: PAGE_SIZE,
     }),
     getShopLocations(admin.graphql),
-    db.customFieldMapping.findMany({
-      where: { shop, resourceType: "PRODUCT", syncEnabled: true },
-      orderBy: { shopifyField: "asc" },
-    }),
   ]);
-
-  // Fetch Shopify metafields for each product on this page and extract custom field values
-  const customFieldValues = {};
-  if (customFieldMappings.length > 0) {
-    // Deduplicate product IDs (multiple variants/locations may share the same product)
-    const uniqueProductIds = [...new Set(mappings.map((m) => m.shopifyProductId))];
-    const metafieldsByProduct = {};
-
-    const metafieldResults = await Promise.allSettled(
-      uniqueProductIds.map((pid) => getProductMetafields(admin.graphql, pid))
-    );
-    for (let i = 0; i < uniqueProductIds.length; i++) {
-      const result = metafieldResults[i];
-      metafieldsByProduct[uniqueProductIds[i]] =
-        result.status === "fulfilled" ? result.value : [];
-    }
-
-    for (const m of mappings) {
-      const metafields = metafieldsByProduct[m.shopifyProductId] || [];
-      customFieldValues[m.id] = shopifyMetafieldsToErpFields(metafields, customFieldMappings);
-    }
-  }
 
   return json({
     mappings,
@@ -106,8 +76,6 @@ export const loader = async ({ request }) => {
     pageSize: PAGE_SIZE,
     locations,
     shop,
-    customFieldMappings,
-    customFieldValues,
   });
 };
 
@@ -204,7 +172,7 @@ export const action = async ({ request }) => {
 };
 
 export default function Products() {
-  const { mappings, total, page, pageSize, locations, customFieldMappings, customFieldValues } = useLoaderData();
+  const { mappings, total, page, pageSize, locations } = useLoaderData();
   const actionData = useActionData();
   const fetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -243,9 +211,6 @@ export default function Products() {
   };
 
   const rows = mappings.map((m) => {
-    const cfValues = customFieldValues[m.id] || {};
-    const customCols = customFieldMappings.map((cf) => cfValues[cf.erpField] || "—");
-
     return [
       <BlockStack gap="100">
         <Text fontWeight="semibold">{m.productTitle}</Text>
@@ -254,7 +219,6 @@ export default function Products() {
       locationName(m.shopifyLocationId),
       m.erpSku || <Badge tone="warning">Sin mapear</Badge>,
       m.shopifyVariantId?.split("/").pop() || "—",
-      ...customCols,
       m.syncEnabled ? (
         <Badge tone="success">Activo</Badge>
       ) : (
@@ -358,7 +322,6 @@ export default function Products() {
                 <DataTable
                   columnContentTypes={[
                     "text", "text", "text", "text",
-                    ...customFieldMappings.map(() => "text"),
                     "text", "text",
                   ]}
                   headings={[
@@ -366,7 +329,6 @@ export default function Products() {
                     "Ubicación",
                     "SKU ERP",
                     "Variant ID Shopify",
-                    ...customFieldMappings.map((cf) => cf.erpField),
                     "Estado Sync",
                     "Acciones",
                   ]}

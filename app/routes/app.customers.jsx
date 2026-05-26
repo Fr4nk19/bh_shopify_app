@@ -33,9 +33,6 @@ import { authenticate } from "../shopify.server.js";
 import { db } from "../db.server.js";
 import {
   getAllCustomers,
-  getCustomer,
-  shopifyMetafieldsToErpFields,
-  createCustomerMetafieldDefinitions,
 } from "../services/shopify-customers.server.js";
 import {
   getCustomerSyncStats,
@@ -66,9 +63,9 @@ export const loader = async ({ request }) => {
       : {}),
   };
 
-  let total, mappings, stats, customFieldMappings, catalogs;
+  let total, mappings, stats, catalogs;
   try {
-    [total, mappings, stats, customFieldMappings, catalogs] = await Promise.all([
+    [total, mappings, stats, catalogs] = await Promise.all([
       db.customerMapping.count({ where }),
       db.customerMapping.findMany({
         where,
@@ -77,10 +74,6 @@ export const loader = async ({ request }) => {
         take: PAGE_SIZE,
       }),
       getCustomerSyncStats(shop),
-      db.customFieldMapping.findMany({
-        where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
-        orderBy: { shopifyField: "asc" },
-      }),
       getErpCatalogs(shop).catch((err) => {
         console.error("[Loader] Failed to load catalogs:", err.message);
         return null;
@@ -88,7 +81,7 @@ export const loader = async ({ request }) => {
     ]);
   } catch (err) {
     console.warn("[Loader] findMany failed, falling back to base columns:", err.message);
-    [total, mappings, stats, customFieldMappings, catalogs] = await Promise.all([
+    [total, mappings, stats, catalogs] = await Promise.all([
       db.customerMapping.count({ where }),
       db.customerMapping.findMany({
         where,
@@ -102,34 +95,11 @@ export const loader = async ({ request }) => {
         },
       }),
       getCustomerSyncStats(shop),
-      db.customFieldMapping.findMany({
-        where: { shop, resourceType: "CUSTOMER", syncEnabled: true },
-        orderBy: { shopifyField: "asc" },
-      }),
       getErpCatalogs(shop).catch((err) => {
         console.error("[Loader] Failed to load catalogs:", err.message);
         return null;
       }),
     ]);
-  }
-
-  // Fetch Shopify metafields for each customer on this page and extract custom field values
-  const customFieldValues = {};
-  if (customFieldMappings.length > 0) {
-    const metafieldResults = await Promise.allSettled(
-      mappings.map((m) => getCustomer(admin.graphql, m.shopifyCustomerId))
-    );
-    for (let i = 0; i < mappings.length; i++) {
-      const result = metafieldResults[i];
-      if (result.status === "fulfilled" && result.value) {
-        customFieldValues[mappings[i].id] = shopifyMetafieldsToErpFields(
-          result.value.metafields || [],
-          customFieldMappings
-        );
-      } else {
-        customFieldValues[mappings[i].id] = {};
-      }
-    }
   }
 
   return json({
@@ -139,8 +109,6 @@ export const loader = async ({ request }) => {
     pageSize: PAGE_SIZE,
     stats,
     shop,
-    customFieldMappings,
-    customFieldValues,
     catalogs,
   });
 };
@@ -257,18 +225,6 @@ export const action = async ({ request }) => {
       });
     }
 
-    // Save DUI as Shopify metafield (text type, no conflict)
-    if (erpCustomerCode) {
-      try {
-        const { setMetafields } = await import("../services/shopify-customers.server.js");
-        await setMetafields(admin.graphql, mapping.shopifyCustomerId, [
-          { namespace: "custom", key: "customer_dui", value: String(erpCustomerCode), type: "single_line_text_field" },
-        ]);
-      } catch (err) {
-        console.error("[UpdateMapping] Failed to save DUI metafield:", err.message);
-      }
-    }
-
     // Sync catalog fields to ERP immediately
     if (erpCustomerCode) {
       try {
@@ -315,24 +271,11 @@ export const action = async ({ request }) => {
     return json({ success: "Estado actualizado" });
   }
 
-  if (intent === "setup-metafields") {
-    try {
-      const results = await createCustomerMetafieldDefinitions(admin.graphql);
-      const msg = `Metafields configurados: ${results.created} creados, ${results.skipped} ya existían.`;
-      if (results.errors.length > 0) {
-        return json({ success: `${msg} Errores: ${results.errors.join(" | ")}` });
-      }
-      return json({ success: msg });
-    } catch (err) {
-      return json({ error: `Error al configurar metafields: ${err.message}` }, { status: 500 });
-    }
-  }
-
   return json({ error: "Acción no válida" }, { status: 400 });
 };
 
 export default function Customers() {
-  const { mappings, total, page, pageSize, stats, customFieldMappings, customFieldValues, catalogs } = useLoaderData();
+  const { mappings, total, page, pageSize, stats, catalogs } = useLoaderData();
   const actionData = useActionData();
   const fetcher = useFetcher();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -418,9 +361,6 @@ export default function Customers() {
   };
 
   const rows = mappings.map((m) => {
-    const cfValues = customFieldValues[m.id] || {};
-    const customCols = customFieldMappings.map((cf) => cfValues[cf.erpField] || "—");
-
     return [
       <BlockStack gap="100">
         <Text fontWeight="semibold">
@@ -435,7 +375,6 @@ export default function Customers() {
       m.phone || "—",
       m.erpCustomerCode || <Badge tone="warning">Sin mapear</Badge>,
       m.shopifyCustomerId?.split("/").pop() || "—",
-      ...customCols,
       m.syncEnabled ? (
         <Badge tone="success">Activo</Badge>
       ) : (
@@ -482,12 +421,6 @@ export default function Customers() {
             fetcher.submit({ intent: "full-sync" }, { method: "POST" });
           },
         },
-        {
-          content: "Configurar Campos MH",
-          onAction: () => {
-            fetcher.submit({ intent: "setup-metafields" }, { method: "POST" });
-          },
-        },
       ]}
     >
       <BlockStack gap="400">
@@ -528,13 +461,10 @@ export default function Customers() {
           <Layout.Section variant="oneThird">
             <Card>
               <BlockStack gap="200">
-                <Text variant="headingMd" as="h3">Campos Personalizados</Text>
-                <Text variant="heading2xl" as="p" fontWeight="bold">
-                  {stats.customFieldMappings}
+                <Text variant="headingMd" as="h3">Syncs Fallidos</Text>
+                <Text variant="heading2xl" as="p" fontWeight="bold" tone="critical">
+                  {stats.failedLogs}
                 </Text>
-                <Button url="/app/custom-fields" variant="plain" size="slim">
-                  Configurar
-                </Button>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -591,7 +521,6 @@ export default function Customers() {
                 <DataTable
                   columnContentTypes={[
                     "text", "text", "text", "text",
-                    ...customFieldMappings.map(() => "text"),
                     "text", "text",
                   ]}
                   headings={[
@@ -599,7 +528,6 @@ export default function Customers() {
                     "Teléfono",
                     "Código ERP",
                     "ID Shopify",
-                    ...customFieldMappings.map((cf) => cf.erpField),
                     "Estado Sync",
                     "Acciones",
                   ]}
