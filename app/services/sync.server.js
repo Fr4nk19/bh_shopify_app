@@ -283,6 +283,10 @@ export async function syncErpToShopify({
     return { skipped: true, reason: "no_mapping" };
   }
 
+  // Shopify inventory quantities must be non-negative integers, but the ERP
+  // stores quantities as decimals. Normalize before pushing to Shopify.
+  const normalizedQuantity = Math.max(0, Math.round(Number(quantity) || 0));
+
   const results = [];
 
   for (const mapping of mappings) {
@@ -299,7 +303,7 @@ export async function syncErpToShopify({
         graphql,
         mapping.shopifyInventoryItemId,
         mapping.shopifyLocationId,
-        quantity,
+        normalizedQuantity,
         "correction"
       );
 
@@ -311,7 +315,7 @@ export async function syncErpToShopify({
         erpSku,
         shopifyVariantId: mapping.shopifyVariantId,
         quantityBefore,
-        quantityAfter: quantity,
+        quantityAfter: normalizedQuantity,
       });
 
       results.push({ success: true, variantId: mapping.shopifyVariantId });
@@ -323,7 +327,7 @@ export async function syncErpToShopify({
         source,
         erpSku,
         shopifyVariantId: mapping.shopifyVariantId,
-        quantityAfter: quantity,
+        quantityAfter: normalizedQuantity,
         errorMessage: error.message,
       });
 
@@ -333,8 +337,8 @@ export async function syncErpToShopify({
         erpSku,
         shopifyVariantId: mapping.shopifyVariantId,
         shopifyLocationId: mapping.shopifyLocationId,
-        quantity,
-        payload: { erpSku, quantity },
+        quantity: normalizedQuantity,
+        payload: { erpSku, quantity: normalizedQuantity },
       });
 
       results.push({ success: false, error: error.message });
@@ -355,7 +359,15 @@ export async function fullSyncErpToShopify({ shop, graphql, source = "cron" }) {
   const results = { success: 0, failed: 0, skipped: 0 };
 
   for (const item of erpInventory) {
-    const { sku, quantity } = item;
+    const sku = item.sku;
+    // Prefer the ERP available (sellable) quantity; fall back to physical.
+    const quantity = item.availableQuantity ?? item.quantity;
+
+    if (!sku || quantity === undefined || quantity === null) {
+      results.skipped++;
+      continue;
+    }
+
     try {
       const result = await syncErpToShopify({
         shop,
@@ -412,6 +424,22 @@ export async function processPendingQueue({ shop, graphql }) {
           quantity: item.quantity,
           graphql,
           source: "retry",
+        });
+      } else if (item.payload?.orderData) {
+        // Retried Shopify order → ERP sale (queued by syncOrderToErp).
+        // These must be replayed as sales, not as inventory pushes.
+        const result = await createErpSale(shop, item.payload.orderData);
+        await logSync({
+          shop,
+          direction: "SHOPIFY_TO_ERP",
+          status: "SUCCESS",
+          source: "retry",
+          erpSku: item.erpSku,
+          payload: JSON.stringify({
+            erpSaleId: result.saleId,
+            correlativeNumber: result.correlativeNumber,
+            total: result.total,
+          }),
         });
       } else {
         await syncShopifyToErp({
