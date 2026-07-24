@@ -14,6 +14,99 @@ import {
   setInventoryQuantity,
   getInventoryLevel,
 } from "./shopify-inventory.server.js";
+import {
+  suppressInventoryEcho,
+  consumeInventoryEcho,
+  ECHO_DEFER_MS,
+} from "./inventory-echo.server.js";
+
+// ─── Order-driven inventory echo suppression ────────────────────────────────
+
+/**
+ * Called from the orders/create webhook. The ERP sale already decrements ERP
+ * stock, so we mark the order's inventory items to suppress the duplicate
+ * inventory_levels/update → ERP write-back that Shopify fires for the same sale.
+ *
+ * Looks up the affected inventory items from the product mappings by the order's
+ * variant IDs (falling back to SKU) so suppression is keyed the same way the
+ * inventory webhook is (by inventory item id).
+ */
+export async function registerOrderInventorySuppression(shop, order) {
+  const lineItems = order?.line_items || [];
+  if (lineItems.length === 0) return;
+
+  const variantIds = lineItems
+    .filter((li) => li.variant_id)
+    .map((li) => `gid://shopify/ProductVariant/${li.variant_id}`);
+  const skus = lineItems
+    .filter((li) => li.sku && li.sku.trim() !== "")
+    .map((li) => li.sku);
+
+  if (variantIds.length === 0 && skus.length === 0) return;
+
+  try {
+    const mappings = await db.productMapping.findMany({
+      where: {
+        shop,
+        OR: [
+          ...(variantIds.length ? [{ shopifyVariantId: { in: variantIds } }] : []),
+          ...(skus.length ? [{ erpSku: { in: skus } }] : []),
+        ],
+      },
+      select: { shopifyInventoryItemId: true },
+    });
+
+    for (const m of mappings) {
+      suppressInventoryEcho(shop, m.shopifyInventoryItemId);
+    }
+  } catch (err) {
+    // Suppression is best-effort; a failure here only risks a transient
+    // double-write that the ERP→Shopify cron reconciles.
+    console.error(`[Suppression] Failed to register order echo for shop ${shop}:`, err.message);
+  }
+}
+
+/**
+ * Called from the inventory_levels/update webhook. Defers the ERP write briefly
+ * so an order webhook for the same change (arriving in any order) can register
+ * its suppression first. If the change was order-driven it is skipped; genuine
+ * manual edits in Shopify admin still sync to the ERP.
+ */
+export function scheduleInventorySyncWithEchoGuard({
+  shop,
+  inventoryItemId,
+  locationId,
+  available,
+  source = "webhook",
+}) {
+  setTimeout(() => {
+    if (consumeInventoryEcho(shop, inventoryItemId)) {
+      console.log(
+        `[Suppression] Skipped order-driven inventory echo for ${inventoryItemId} (shop ${shop})`
+      );
+      logSync({
+        shop,
+        direction: "SHOPIFY_TO_ERP",
+        status: "SKIPPED",
+        source,
+        erpSku: null,
+        shopifyVariantId: null,
+        errorMessage: `Order-driven inventory change; ERP already updated by the sale (inventoryItemId=${inventoryItemId})`,
+      }).catch(() => {});
+      return;
+    }
+
+    syncShopifyToErp({
+      shop,
+      inventoryItemId,
+      locationId,
+      available,
+      source,
+    }).catch((err) => {
+      console.error(`[Webhook] Sync to ERP failed for shop ${shop}:`, err.message);
+    });
+  }, ECHO_DEFER_MS);
+}
 
 // ─── Shopify → ERP ─────────────────────────────────────────────────────────────
 
@@ -283,6 +376,10 @@ export async function syncErpToShopify({
     return { skipped: true, reason: "no_mapping" };
   }
 
+  // Shopify inventory quantities must be non-negative integers, but the ERP
+  // stores quantities as decimals. Normalize before pushing to Shopify.
+  const normalizedQuantity = Math.max(0, Math.round(Number(quantity) || 0));
+
   const results = [];
 
   for (const mapping of mappings) {
@@ -299,7 +396,7 @@ export async function syncErpToShopify({
         graphql,
         mapping.shopifyInventoryItemId,
         mapping.shopifyLocationId,
-        quantity,
+        normalizedQuantity,
         "correction"
       );
 
@@ -311,7 +408,7 @@ export async function syncErpToShopify({
         erpSku,
         shopifyVariantId: mapping.shopifyVariantId,
         quantityBefore,
-        quantityAfter: quantity,
+        quantityAfter: normalizedQuantity,
       });
 
       results.push({ success: true, variantId: mapping.shopifyVariantId });
@@ -323,7 +420,7 @@ export async function syncErpToShopify({
         source,
         erpSku,
         shopifyVariantId: mapping.shopifyVariantId,
-        quantityAfter: quantity,
+        quantityAfter: normalizedQuantity,
         errorMessage: error.message,
       });
 
@@ -333,8 +430,8 @@ export async function syncErpToShopify({
         erpSku,
         shopifyVariantId: mapping.shopifyVariantId,
         shopifyLocationId: mapping.shopifyLocationId,
-        quantity,
-        payload: { erpSku, quantity },
+        quantity: normalizedQuantity,
+        payload: { erpSku, quantity: normalizedQuantity },
       });
 
       results.push({ success: false, error: error.message });
@@ -355,7 +452,15 @@ export async function fullSyncErpToShopify({ shop, graphql, source = "cron" }) {
   const results = { success: 0, failed: 0, skipped: 0 };
 
   for (const item of erpInventory) {
-    const { sku, quantity } = item;
+    const sku = item.sku;
+    // Prefer the ERP available (sellable) quantity; fall back to physical.
+    const quantity = item.availableQuantity ?? item.quantity;
+
+    if (!sku || quantity === undefined || quantity === null) {
+      results.skipped++;
+      continue;
+    }
+
     try {
       const result = await syncErpToShopify({
         shop,
@@ -412,6 +517,22 @@ export async function processPendingQueue({ shop, graphql }) {
           quantity: item.quantity,
           graphql,
           source: "retry",
+        });
+      } else if (item.payload?.orderData) {
+        // Retried Shopify order → ERP sale (queued by syncOrderToErp).
+        // These must be replayed as sales, not as inventory pushes.
+        const result = await createErpSale(shop, item.payload.orderData);
+        await logSync({
+          shop,
+          direction: "SHOPIFY_TO_ERP",
+          status: "SUCCESS",
+          source: "retry",
+          erpSku: item.erpSku,
+          payload: JSON.stringify({
+            erpSaleId: result.saleId,
+            correlativeNumber: result.correlativeNumber,
+            total: result.total,
+          }),
         });
       } else {
         await syncShopifyToErp({
