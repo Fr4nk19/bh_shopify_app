@@ -12,7 +12,7 @@
  */
 
 import { authenticate } from "../shopify.server.js";
-import { syncShopifyToErp } from "../services/sync.server.js";
+import { scheduleInventorySyncWithEchoGuard } from "../services/sync.server.js";
 
 export const action = async ({ request }) => {
   const { shop, payload, topic } = await authenticate.webhook(request);
@@ -24,15 +24,15 @@ export const action = async ({ request }) => {
   });
 
   try {
-    // Fire and forget — respond 200 immediately, sync in background
-    syncShopifyToErp({
+    // Respond 200 immediately. The ERP write is deferred briefly and skipped
+    // when the change was caused by a Shopify order (the ERP sale already
+    // decremented stock); manual edits in Shopify admin still sync to the ERP.
+    scheduleInventorySyncWithEchoGuard({
       shop,
       inventoryItemId: `gid://shopify/InventoryItem/${payload.inventory_item_id}`,
       locationId: `gid://shopify/Location/${payload.location_id}`,
       available: payload.available,
       source: "webhook",
-    }).catch((err) => {
-      console.error(`[Webhook] Sync to ERP failed for shop ${shop}:`, err.message);
     });
   } catch (err) {
     console.error(`[Webhook] Error processing inventory update:`, err);

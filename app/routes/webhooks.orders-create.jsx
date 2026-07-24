@@ -25,7 +25,10 @@
  */
 
 import { authenticate } from "../shopify.server.js";
-import { syncOrderToErp } from "../services/sync.server.js";
+import {
+  syncOrderToErp,
+  registerOrderInventorySuppression,
+} from "../services/sync.server.js";
 
 export const action = async ({ request }) => {
   const { shop, payload, topic } = await authenticate.webhook(request);
@@ -39,6 +42,11 @@ export const action = async ({ request }) => {
   });
 
   try {
+    // Register echo suppression BEFORE returning: the ERP sale below decrements
+    // ERP stock, so the inventory_levels/update webhook that Shopify fires for
+    // this same order must not double-write the change to the ERP.
+    await registerOrderInventorySuppression(shop, payload);
+
     // Fire and forget — respond 200 immediately, sync in background
     syncOrderToErp({
       shop,
